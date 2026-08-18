@@ -21,20 +21,26 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
+        shell: bash
         run: |
-          yes | sdkmanager --licenses
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          for i in {1..30}; do echo y; done | sdkmanager --licenses || true
+          sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Create local.properties
-        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+        run: echo "sdk.dir=${ANDROID_SDK_ROOT}" > local.properties
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.7"
+      - name: Setup Gradle Wrapper
+        shell: bash
+        run: |
+          mkdir -p gradle/wrapper
+          curl -fsSL -o gradle/wrapper/gradle-wrapper.jar \
+            https://github.com/gradle/gradle/raw/v8.7.0/gradle/wrapper/gradle-wrapper.jar
+          curl -fsSL -o gradlew \
+            https://github.com/gradle/gradle/raw/v8.7.0/gradlew
+          chmod +x gradlew
 
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
