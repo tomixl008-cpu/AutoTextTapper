@@ -15,6 +15,10 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
 
+    private val statusListener: (String) -> Unit = { status ->
+        runOnUiThread { statusText.text = status }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -27,34 +31,35 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.startButton).setOnClickListener {
             if (!isAutomationServiceEnabled()) {
-                statusText.text = "First enable Auto Text Tapper service in Accessibility Settings."
+                statusText.text = getString(R.string.status_service_disabled)
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 return@setOnClickListener
             }
 
-            val started = TextAutomationAccessibilityService.startAutomation()
-            statusText.text = if (started) {
-                "Started. Switch to the authorized target screen within 5 seconds."
-            } else {
-                "Service is not connected yet. Turn it off/on in Accessibility Settings, then try again."
+            val started = TextAutomationAccessibilityService.requestStart()
+            if (!started) {
+                statusText.text = getString(R.string.status_service_not_connected)
             }
         }
 
         findViewById<Button>(R.id.stopButton).setOnClickListener {
-            TextAutomationAccessibilityService.stopAutomation()
-            statusText.text = "Automation stopped."
+            TextAutomationAccessibilityService.requestStop()
         }
     }
 
     override fun onResume() {
         super.onResume()
-        if (::statusText.isInitialized) {
-            statusText.text = if (isAutomationServiceEnabled()) {
-                "Service enabled. Press Start when ready."
-            } else {
-                "Enable the accessibility service, then press Start."
-            }
+        AutomationStatusHolder.addListener(statusListener)
+        if (!isAutomationServiceEnabled()) {
+            statusText.text = getString(R.string.status_service_disabled)
+        } else if (!TextAutomationAccessibilityService.isServiceRunning()) {
+            statusText.text = getString(R.string.status_service_ready)
         }
+    }
+
+    override fun onPause() {
+        AutomationStatusHolder.removeListener(statusListener)
+        super.onPause()
     }
 
     private fun isAutomationServiceEnabled(): Boolean {

@@ -2,271 +2,481 @@ package com.example.autotexttapper
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Intent
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import java.util.Locale
 
+/**
+ * All user-configurable text, delay, and gesture values for the automation
+ * routine. Edit these constants to retune behaviour without touching the
+ * state machine logic below.
+ */
+private object AutomationConfig {
+    const val LIKE_VIDEO_TEXT = "Like video"
+    const val SKIP_TEXT = "Skip"
+    const val LOADING_TEXT = "Loading"
+
+    const val INITIAL_DELAY_MS = 5000L
+    const val WAIT_AFTER_LIKE_MS = 5000L
+    const val WAIT_BETWEEN_SWIPES_MS = 500L
+    const val WAIT_AFTER_SKIP_MS = 4000L
+    const val MAIN_SCAN_INTERVAL_MS = 1000L
+    const val LOADING_SETTLE_DELAY_MS = 500L
+    const val LOADING_TIMEOUT_MS = 30000L
+
+    const val TAP_DURATION_MS = 60L
+    const val DOUBLE_TAP_GAP_MS = 150L
+    const val SWIPE_START_X_RATIO = 0.08f
+    const val SWIPE_END_X_RATIO = 0.82f
+    const val SWIPE_Y_RATIO = 0.50f
+    const val SWIPE_DURATION_MS = 300L
+}
+
+/** Finite states for the automation routine. Exactly one action runs per transition. */
+enum class AutomationState {
+    IDLE,
+    INITIAL_WAIT,
+    FIND_LIKE_OR_SKIP,
+    WAIT_AFTER_LIKE,
+    DOUBLE_TAP_CENTER,
+    FIRST_SWIPE_BACK,
+    WAIT_BETWEEN_SWIPES,
+    SECOND_SWIPE_BACK,
+    WAIT_FOR_LOADING,
+    WAIT_FOR_LOADING_TO_FINISH,
+    WAIT_AFTER_LOADING_FINISH,
+    WAIT_AFTER_SKIP
+}
+
+/**
+ * User-controlled accessibility automation service.
+ *
+ * Safety scope: this service only reads visible accessibility text/content
+ * descriptions and performs clicks/gestures while explicitly started from
+ * MainActivity. It never takes screenshots, never reads screen pixels, and
+ * performs no action until the device owner presses Start. Pressing Stop
+ * (or destroying the service) cancels all pending work immediately.
+ */
 class TextAutomationAccessibilityService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
-    private var state = State.IDLE
-    private var scanQueued = false
 
-    private enum class State {
-        IDLE,
-        INITIAL_WAIT,
-        FIND_LIKE_OR_SKIP,
-        WAIT_AFTER_LIKE,
-        WAIT_AFTER_DOUBLE_TAP,
-        FIND_FANTIK,
-        WAIT_AFTER_FANTIK,
-        WAIT_AFTER_SKIP
-    }
+    private var state: AutomationState = AutomationState.IDLE
+
+    /** Incremented on every Start/Stop so stale delayed callbacks can detect they're obsolete. */
+    private var sessionId: Int = 0
+
+    private var mainScanScheduled = false
+    private var loadingCheckScheduled = false
+    private var loadingWaitStartElapsed = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
     }
 
-    override fun onDestroy() {
-        stopInternal()
-        if (instance === this) instance = null
-        super.onDestroy()
-    }
-
-    override fun onInterrupt() {
-        // Android calls this if it wants the service to interrupt feedback.
-    }
-
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // UI changed: scan sooner only while the service is waiting for text.
-        if (state == State.FIND_LIKE_OR_SKIP || state == State.FIND_FANTIK) {
-            scheduleScan(EVENT_SCAN_DELAY_MS)
-        }
-    }
-
-    private fun startInternal() {
-        stopInternal()
-        state = State.INITIAL_WAIT
-
-        handler.postDelayed({
-            if (state == State.INITIAL_WAIT) {
-                state = State.FIND_LIKE_OR_SKIP
-                scanNow()
-            }
-        }, INITIAL_WAIT_MS)
-    }
-
-    private fun stopInternal() {
-        handler.removeCallbacksAndMessages(null)
-        scanQueued = false
-        state = State.IDLE
-    }
-
-    private fun scheduleScan(delayMs: Long = SCAN_INTERVAL_MS) {
-        if (state == State.IDLE || scanQueued) return
-
-        scanQueued = true
-        handler.postDelayed({
-            scanQueued = false
-            scanNow()
-        }, delayMs)
-    }
-
-    private fun scanNow() {
-        val root = rootInActiveWindow ?: run {
-            if (state == State.FIND_LIKE_OR_SKIP || state == State.FIND_FANTIK) {
-                scheduleScan()
-            }
+        val type = event?.eventType ?: return
+        if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            type != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+        ) {
             return
         }
-
         when (state) {
-            State.FIND_LIKE_OR_SKIP -> scanLikeThenSkip(root)
-            State.FIND_FANTIK -> scanFanTik(root)
+            AutomationState.FIND_LIKE_OR_SKIP -> scheduleMainScan(sessionId, 0L)
+            AutomationState.WAIT_FOR_LOADING,
+            AutomationState.WAIT_FOR_LOADING_TO_FINISH -> scheduleLoadingCheck(sessionId, 0L)
             else -> Unit
         }
     }
 
-    private fun scanLikeThenSkip(root: AccessibilityNodeInfo) {
-        // PRIORITY RULE: search Like video before Skip.
-        val likeNode = findVisibleExactText(root, LIKE_VIDEO)
+    override fun onInterrupt() {
+        stopAutomationInternal()
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        stopAutomationInternal()
+        instance = null
+        return super.onUnbind(intent)
+    }
+
+    override fun onDestroy() {
+        stopAutomationInternal()
+        instance = null
+        super.onDestroy()
+    }
+
+    // ------------------------------------------------------------------
+    // Start / Stop
+    // ------------------------------------------------------------------
+
+    private fun startAutomationInternal() {
+        // Cancel anything left over from a previous run before starting fresh.
+        handler.removeCallbacksAndMessages(null)
+        mainScanScheduled = false
+        loadingCheckScheduled = false
+        sessionId++
+        val session = sessionId
+
+        state = AutomationState.INITIAL_WAIT
+        AutomationStatusHolder.update(getString(R.string.status_started_initial_wait))
+
+        handler.postDelayed({
+            if (!isCurrentSession(session)) return@postDelayed
+            state = AutomationState.FIND_LIKE_OR_SKIP
+            AutomationStatusHolder.update(getString(R.string.status_searching))
+            scheduleMainScan(session, 0L)
+        }, AutomationConfig.INITIAL_DELAY_MS)
+    }
+
+    private fun stopAutomationInternal() {
+        sessionId++ // invalidates every in-flight closure immediately
+        handler.removeCallbacksAndMessages(null)
+        mainScanScheduled = false
+        loadingCheckScheduled = false
+        state = AutomationState.IDLE
+        AutomationStatusHolder.update(getString(R.string.status_stopped))
+    }
+
+    private fun isCurrentSession(session: Int): Boolean = session == sessionId
+
+    // ------------------------------------------------------------------
+    // B. Main scan rule — Like video always has priority over Skip
+    // ------------------------------------------------------------------
+
+    private fun scheduleMainScan(session: Int, delayMs: Long) {
+        if (!isCurrentSession(session) || state != AutomationState.FIND_LIKE_OR_SKIP) return
+        if (mainScanScheduled) return
+        mainScanScheduled = true
+        handler.postDelayed({
+            mainScanScheduled = false
+            performMainScan(session)
+        }, delayMs)
+    }
+
+    private fun performMainScan(session: Int) {
+        if (!isCurrentSession(session) || state != AutomationState.FIND_LIKE_OR_SKIP) return
+
+        val root = rootInActiveWindow
+        val likeNode = findNodeByText(root, AutomationConfig.LIKE_VIDEO_TEXT)
         if (likeNode != null) {
-            if (clickNodeOrParent(likeNode)) {
-                waitAfterLikeTap()
-            } else {
-                scheduleScan()
-            }
-            return
-        }
-
-        // This is a fallback only. It runs only when Like video is absent.
-        val skipNode = findVisibleExactText(root, SKIP)
-        if (skipNode != null) {
-            if (clickNodeOrParent(skipNode)) {
-                waitAfterSkipTap()
-            } else {
-                scheduleScan()
-            }
-            return
-        }
-
-        // Neither text is visible: do nothing, then retry.
-        scheduleScan()
-    }
-
-    private fun scanFanTik(root: AccessibilityNodeInfo) {
-        val fanTikNode = findVisibleExactText(root, FANTIK)
-        if (fanTikNode != null) {
-            if (clickNodeOrParent(fanTikNode)) {
-                waitAfterFanTikTap()
-            } else {
-                scheduleScan()
-            }
-        } else {
-            scheduleScan()
-        }
-    }
-
-    // Like video -> wait 4 s -> centre double-tap -> wait 2 s -> look for FanTik.
-    private fun waitAfterLikeTap() {
-        state = State.WAIT_AFTER_LIKE
-
-        handler.postDelayed({
-            if (state != State.WAIT_AFTER_LIKE) return@postDelayed
-
-            sendCentreDoubleTap()
-            state = State.WAIT_AFTER_DOUBLE_TAP
-
-            handler.postDelayed({
-                if (state == State.WAIT_AFTER_DOUBLE_TAP) {
-                    state = State.FIND_FANTIK
-                    scanNow()
+            attemptClick(likeNode) { clicked ->
+                if (!isCurrentSession(session)) return@attemptClick
+                if (clicked) {
+                    onLikeVideoClicked(session)
+                } else {
+                    scheduleMainScan(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
                 }
-            }, WAIT_AFTER_DOUBLE_TAP_MS)
-        }, WAIT_AFTER_LIKE_TAP_MS)
-    }
-
-    // Skip -> wait 4 s -> immediately resume Like video first priority scan.
-    private fun waitAfterSkipTap() {
-        state = State.WAIT_AFTER_SKIP
-
-        handler.postDelayed({
-            if (state == State.WAIT_AFTER_SKIP) {
-                state = State.FIND_LIKE_OR_SKIP
-                scanNow()
             }
-        }, WAIT_AFTER_SKIP_TAP_MS)
-    }
+            return
+        }
 
-    // FanTik -> wait 11 s -> resume Like video first priority scan.
-    private fun waitAfterFanTikTap() {
-        state = State.WAIT_AFTER_FANTIK
-
-        handler.postDelayed({
-            if (state == State.WAIT_AFTER_FANTIK) {
-                state = State.FIND_LIKE_OR_SKIP
-                scanNow()
+        val skipNode = findNodeByText(root, AutomationConfig.SKIP_TEXT)
+        if (skipNode != null) {
+            attemptClick(skipNode) { clicked ->
+                if (!isCurrentSession(session)) return@attemptClick
+                if (clicked) {
+                    onSkipClicked(session)
+                } else {
+                    scheduleMainScan(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
+                }
             }
-        }, WAIT_AFTER_FANTIK_TAP_MS)
+            return
+        }
+
+        // Neither text visible: don't touch the screen, wait, scan again.
+        scheduleMainScan(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
     }
 
-    private fun findVisibleExactText(
-        root: AccessibilityNodeInfo,
-        requiredText: String
-    ): AccessibilityNodeInfo? {
-        val required = requiredText.trim().lowercase(Locale.ROOT)
+    // ------------------------------------------------------------------
+    // C. Like video route
+    // ------------------------------------------------------------------
+
+    private fun onLikeVideoClicked(session: Int) {
+        state = AutomationState.WAIT_AFTER_LIKE
+        AutomationStatusHolder.update(getString(R.string.status_like_clicked))
+        handler.postDelayed({
+            if (!isCurrentSession(session)) return@postDelayed
+            state = AutomationState.DOUBLE_TAP_CENTER
+            AutomationStatusHolder.update(getString(R.string.status_double_tap))
+            doubleTapCentre { success ->
+                if (!isCurrentSession(session)) return@doubleTapCentre
+                if (success) {
+                    performFirstSwipeBack(session)
+                } else {
+                    abortRouteToMainScan(session)
+                }
+            }
+        }, AutomationConfig.WAIT_AFTER_LIKE_MS)
+    }
+
+    private fun performFirstSwipeBack(session: Int) {
+        state = AutomationState.FIRST_SWIPE_BACK
+        AutomationStatusHolder.update(getString(R.string.status_first_swipe))
+        swipeBack { success ->
+            if (!isCurrentSession(session)) return@swipeBack
+            if (!success) {
+                abortRouteToMainScan(session)
+                return@swipeBack
+            }
+            state = AutomationState.WAIT_BETWEEN_SWIPES
+            AutomationStatusHolder.update(getString(R.string.status_wait_between_swipes))
+            handler.postDelayed({
+                if (!isCurrentSession(session)) return@postDelayed
+                performSecondSwipeBack(session)
+            }, AutomationConfig.WAIT_BETWEEN_SWIPES_MS)
+        }
+    }
+
+    private fun performSecondSwipeBack(session: Int) {
+        state = AutomationState.SECOND_SWIPE_BACK
+        AutomationStatusHolder.update(getString(R.string.status_second_swipe))
+        swipeBack { success ->
+            if (!isCurrentSession(session)) return@swipeBack
+            if (!success) {
+                abortRouteToMainScan(session)
+                return@swipeBack
+            }
+            beginLoadingWait(session)
+        }
+    }
+
+    private fun abortRouteToMainScan(session: Int) {
+        if (!isCurrentSession(session)) return
+        AutomationStatusHolder.update(getString(R.string.status_gesture_interrupted))
+        state = AutomationState.FIND_LIKE_OR_SKIP
+        scheduleMainScan(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
+    }
+
+    // ------------------------------------------------------------------
+    // D. Loading wait route
+    // ------------------------------------------------------------------
+
+    private fun beginLoadingWait(session: Int) {
+        state = AutomationState.WAIT_FOR_LOADING
+        loadingWaitStartElapsed = SystemClock.elapsedRealtime()
+        AutomationStatusHolder.update(getString(R.string.status_waiting_for_loading))
+        scheduleLoadingCheck(session, 0L)
+    }
+
+    private fun scheduleLoadingCheck(session: Int, delayMs: Long) {
+        if (!isCurrentSession(session)) return
+        if (state != AutomationState.WAIT_FOR_LOADING &&
+            state != AutomationState.WAIT_FOR_LOADING_TO_FINISH
+        ) {
+            return
+        }
+        if (loadingCheckScheduled) return
+        loadingCheckScheduled = true
+        handler.postDelayed({
+            loadingCheckScheduled = false
+            performLoadingCheck(session)
+        }, delayMs)
+    }
+
+    private fun performLoadingCheck(session: Int) {
+        if (!isCurrentSession(session)) return
+
+        val root = rootInActiveWindow
+        val loadingVisible = findNodeByText(root, AutomationConfig.LOADING_TEXT) != null
+
+        when (state) {
+            AutomationState.WAIT_FOR_LOADING -> {
+                if (loadingVisible) {
+                    state = AutomationState.WAIT_FOR_LOADING_TO_FINISH
+                    AutomationStatusHolder.update(getString(R.string.status_loading_detected))
+                    scheduleLoadingCheck(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
+                } else {
+                    val elapsed = SystemClock.elapsedRealtime() - loadingWaitStartElapsed
+                    if (elapsed >= AutomationConfig.LOADING_TIMEOUT_MS) {
+                        returnToMainScanAfterLoading(session)
+                    } else {
+                        scheduleLoadingCheck(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
+                    }
+                }
+            }
+
+            AutomationState.WAIT_FOR_LOADING_TO_FINISH -> {
+                if (loadingVisible) {
+                    scheduleLoadingCheck(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
+                } else {
+                    state = AutomationState.WAIT_AFTER_LOADING_FINISH
+                    AutomationStatusHolder.update(getString(R.string.status_loading_finished))
+                    handler.postDelayed({
+                        if (!isCurrentSession(session)) return@postDelayed
+                        returnToMainScanAfterLoading(session)
+                    }, AutomationConfig.LOADING_SETTLE_DELAY_MS)
+                }
+            }
+
+            else -> Unit
+        }
+    }
+
+    private fun returnToMainScanAfterLoading(session: Int) {
+        if (!isCurrentSession(session)) return
+        state = AutomationState.FIND_LIKE_OR_SKIP
+        AutomationStatusHolder.update(getString(R.string.status_searching))
+        scheduleMainScan(session, 0L)
+    }
+
+    // ------------------------------------------------------------------
+    // E. Skip route
+    // ------------------------------------------------------------------
+
+    private fun onSkipClicked(session: Int) {
+        state = AutomationState.WAIT_AFTER_SKIP
+        AutomationStatusHolder.update(getString(R.string.status_skip_clicked))
+        handler.postDelayed({
+            if (!isCurrentSession(session)) return@postDelayed
+            state = AutomationState.FIND_LIKE_OR_SKIP
+            AutomationStatusHolder.update(getString(R.string.status_searching))
+            scheduleMainScan(session, 0L)
+        }, AutomationConfig.WAIT_AFTER_SKIP_MS)
+    }
+
+    // ------------------------------------------------------------------
+    // Node search + click helpers
+    // ------------------------------------------------------------------
+
+    private fun findNodeByText(root: AccessibilityNodeInfo?, target: String): AccessibilityNodeInfo? {
+        if (root == null) return null
         val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-
+        queue.addLast(root)
         while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
-            val visibleText = node.text?.toString()?.trim()?.lowercase(Locale.ROOT)
-            val contentDescription = node.contentDescription?.toString()?.trim()?.lowercase(Locale.ROOT)
-
-            if (node.isVisibleToUser && (visibleText == required || contentDescription == required)) {
+            if (matchesTarget(node.text?.toString(), target) ||
+                matchesTarget(node.contentDescription?.toString(), target)
+            ) {
                 return node
             }
-
-            for (index in 0 until node.childCount) {
-                node.getChild(index)?.let(queue::add)
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { queue.addLast(it) }
             }
         }
         return null
     }
 
-    private fun clickNodeOrParent(node: AccessibilityNodeInfo): Boolean {
-        var current: AccessibilityNodeInfo? = node
+    private fun matchesTarget(value: String?, target: String): Boolean {
+        if (value == null) return false
+        return value.trim().equals(target.trim(), ignoreCase = true)
+    }
 
-        while (current != null) {
-            if (current.isClickable && current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                return true
-            }
-            current = current.parent
+    /**
+     * 1) Try ACTION_CLICK on the node itself.
+     * 2) Walk up parents for the first clickable ancestor.
+     * 3) Fall back to a single-tap gesture at the node's on-screen bounds centre.
+     */
+    private fun attemptClick(node: AccessibilityNodeInfo, onResult: (Boolean) -> Unit) {
+        if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            onResult(true)
+            return
         }
 
-        // Fallback: tap the matched text element's visible bounds.
+        var parent = node.parent
+        while (parent != null) {
+            if (parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                onResult(true)
+                return
+            }
+            parent = parent.parent
+        }
+
         val bounds = Rect()
         node.getBoundsInScreen(bounds)
-        return if (!bounds.isEmpty) {
-            sendSingleTap(bounds.exactCenterX(), bounds.exactCenterY())
-        } else {
-            false
+        if (bounds.width() <= 0 || bounds.height() <= 0) {
+            onResult(false)
+            return
+        }
+        tapAt(bounds.exactCenterX(), bounds.exactCenterY(), onResult)
+    }
+
+    // ------------------------------------------------------------------
+    // Gesture helpers
+    // ------------------------------------------------------------------
+
+    private fun tapAt(x: Float, y: Float, onResult: ((Boolean) -> Unit)? = null) {
+        val path = Path().apply { moveTo(x, y) }
+        val stroke = GestureDescription.StrokeDescription(path, 0, AutomationConfig.TAP_DURATION_MS)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                onResult?.invoke(true)
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                onResult?.invoke(false)
+            }
+        }, handler)
+        if (!dispatched) {
+            onResult?.invoke(false)
         }
     }
 
-    private fun sendCentreDoubleTap() {
-        val metrics = resources.displayMetrics
-        val x = metrics.widthPixels / 2f
-        val y = metrics.heightPixels / 2f
-        val path = Path().apply { moveTo(x, y) }
-
-        val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, TAP_DURATION_MS))
-            .addStroke(GestureDescription.StrokeDescription(path, DOUBLE_TAP_GAP_MS, TAP_DURATION_MS))
-            .build()
-
-        dispatchGesture(gesture, null, null)
+    private fun doubleTapCentre(onResult: (Boolean) -> Unit) {
+        val (cx, cy) = screenCenter()
+        tapAt(cx, cy) { firstTapOk ->
+            if (!firstTapOk) {
+                onResult(false)
+                return@tapAt
+            }
+            handler.postDelayed({
+                tapAt(cx, cy) { secondTapOk -> onResult(secondTapOk) }
+            }, AutomationConfig.DOUBLE_TAP_GAP_MS)
+        }
     }
 
-    private fun sendSingleTap(x: Float, y: Float): Boolean {
-        val path = Path().apply { moveTo(x, y) }
-        val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, TAP_DURATION_MS))
-            .build()
+    private fun swipeBack(onResult: (Boolean) -> Unit) {
+        val metrics = resources.displayMetrics
+        val startX = metrics.widthPixels * AutomationConfig.SWIPE_START_X_RATIO
+        val endX = metrics.widthPixels * AutomationConfig.SWIPE_END_X_RATIO
+        val y = metrics.heightPixels * AutomationConfig.SWIPE_Y_RATIO
 
-        return dispatchGesture(gesture, null, null)
+        val path = Path().apply {
+            moveTo(startX, y)
+            lineTo(endX, y)
+        }
+        val stroke = GestureDescription.StrokeDescription(path, 0, AutomationConfig.SWIPE_DURATION_MS)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                onResult(true)
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                onResult(false)
+            }
+        }, handler)
+        if (!dispatched) {
+            onResult(false)
+        }
+    }
+
+    private fun screenCenter(): Pair<Float, Float> {
+        val metrics = resources.displayMetrics
+        return Pair(metrics.widthPixels / 2f, metrics.heightPixels / 2f)
     }
 
     companion object {
-        private const val LIKE_VIDEO = "Like video"
-        private const val SKIP = "Skip"
-        private const val FANTIK = "FanTik"
-
-        private const val INITIAL_WAIT_MS = 5_000L
-        private const val WAIT_AFTER_LIKE_TAP_MS = 4_000L
-        private const val WAIT_AFTER_SKIP_TAP_MS = 4_000L
-        private const val WAIT_AFTER_DOUBLE_TAP_MS = 2_000L
-        private const val WAIT_AFTER_FANTIK_TAP_MS = 11_000L
-        private const val SCAN_INTERVAL_MS = 1_000L
-        private const val EVENT_SCAN_DELAY_MS = 150L
-        private const val TAP_DURATION_MS = 60L
-        private const val DOUBLE_TAP_GAP_MS = 150L
-
+        @Volatile
         private var instance: TextAutomationAccessibilityService? = null
 
-        fun startAutomation(): Boolean {
+        fun isServiceRunning(): Boolean = instance != null
+
+        /** Returns true if the request was delivered to a connected service instance. */
+        fun requestStart(): Boolean {
             val service = instance ?: return false
-            service.startInternal()
+            service.startAutomationInternal()
             return true
         }
 
-        fun stopAutomation() {
-            instance?.stopInternal()
+        fun requestStop() {
+            instance?.stopAutomationInternal()
         }
     }
 }

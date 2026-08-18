@@ -1,0 +1,154 @@
+# Auto Text Tapper
+
+A user-controlled Android Accessibility Service assistant, built with Kotlin and traditional XML
+Views (no Jetpack Compose).
+
+## Authorized-use notice
+
+This app is for automating **apps, screens, and accounts that the device owner is authorized to
+automate.** It requires the Android Accessibility Service permission, which the owner must enable
+manually through Android Settings — the app cannot enable it silently. The app performs no action
+until the owner explicitly presses **Start**, and everything stops immediately when **Stop** is
+pressed.
+
+The app deliberately does **not** implement: screenshot capture, OCR, root access, overlays,
+hidden background behavior, CAPTCHA handling, ad-click automation, banking/payment/OTP/password/
+login automation, protected-screen bypasses, or anti-detection methods. It only reads
+accessibility text/content descriptions that are already exposed to any accessibility service, and
+only clicks/gestures on the screen that is currently active.
+
+## Behavior flow
+
+```
+Start -> wait 5s -> Main Scan (Like video priority over Skip)
+                       |
+          -------------------------------
+          |                             |
+     "Like video" found            "Skip" found (only if
+          |                         "Like video" absent)
+          v                             v
+      Like route                    Skip route
+```
+
+### Like video route
+
+1. Click **Like video**.
+2. Wait 5 seconds.
+3. Double-tap the exact centre of the screen (two ~60 ms taps, ~150 ms apart).
+4. Swipe back (left → right, 8% → 82% of screen width, 50% height, 300 ms).
+5. Wait 0.5 seconds.
+6. Swipe back again (same gesture).
+7. Wait for the "Loading" text to appear and then disappear (checked every second and on every
+   window/content-change event; 30-second timeout if "Loading" never appears at all).
+8. Once loading is gone, wait 0.5 seconds extra, then return to Main Scan.
+
+**Priority rule:** if "Like video" and "Skip" are both visible, only "Like video" is clicked. Skip
+is only ever considered when "Like video" is completely absent from the screen.
+
+### Skip route
+
+1. Click **Skip**.
+2. Wait exactly 4 seconds.
+3. Return directly to Main Scan. No double-tap, no swipe, no Loading wait.
+
+### Stop rule
+
+Pressing **Stop** immediately cancels every pending delay, scan, retry, tap, and swipe in flight,
+sets the internal state to `IDLE`, and shows "Stopped". No further action happens until Start is
+pressed again.
+
+## Project structure
+
+- `app/src/main/java/com/example/autotexttapper/TextAutomationAccessibilityService.kt` — the
+  finite state machine and all gesture/click logic. All tunable values (target text, delays,
+  gesture coordinates/durations) live in the `AutomationConfig` object at the top of this file.
+- `app/src/main/java/com/example/autotexttapper/MainActivity.kt` — the UI: Open Accessibility
+  Settings / Start / Stop buttons and a live status line.
+- `app/src/main/java/com/example/autotexttapper/AutomationStatusHolder.kt` — a tiny observable
+  singleton the service uses to publish status text, which `MainActivity` displays live while open.
+- `app/src/main/res/xml/accessibility_service_config.xml` — accessibility service capabilities
+  (window content retrieval, gesture dispatch, window state/content change events).
+
+## Local build
+
+Requirements: JDK 17, Android SDK with `platforms;android-37` and `build-tools;36.0.0` installed,
+and `ANDROID_HOME`/`local.properties` pointing at it.
+
+```bash
+./gradlew assembleDebug --no-daemon
+```
+
+The debug APK is produced at:
+
+```
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+## Installing on a phone
+
+1. Install the APK on the device (`adb install -r app-debug.apk`, or copy it to the device and open
+   it with a file manager).
+2. Open **Auto Text Tapper**.
+3. Tap **Open Accessibility Settings**, find **Auto Text Tapper service**, and turn it on. Android
+   requires this step to be done manually by the device owner — the app cannot do it for you.
+4. Return to the app. The status line should read "Service enabled and ready."
+5. Navigate to the authorized target screen, then tap **Start (5-second delay)**. You have 5
+   seconds to make sure the correct screen is in the foreground before scanning begins.
+6. Tap **Stop** at any time to halt automation immediately.
+
+## Building via GitHub Actions (no local Android SDK needed)
+
+1. Push this repository to `main` on GitHub.
+2. Open the repository's **Actions** tab.
+3. Open the **Build Android APK** workflow.
+4. Wait for the run to finish with a green check (or trigger it manually via **Run workflow** /
+   `workflow_dispatch`).
+5. Open the completed workflow run.
+6. Under **Artifacts**, download **AutoTextTapper-debug-APK**.
+7. Extract the downloaded ZIP and install `app-debug.apk` on your device.
+
+## Limitations
+
+- Only UI elements that are exposed through Android's accessibility tree (text or content
+  description) can be detected. Text rendered inside a video surface, `Canvas`, custom-drawn view,
+  or a view that explicitly hides itself from accessibility services is invisible to this app.
+- Some apps mark sensitive/protected screens so their content is not exposed to accessibility
+  services at all; this app cannot and does not attempt to bypass that.
+- The device owner must manually enable the Accessibility Service permission in Android Settings —
+  this is an Android platform requirement, not a limitation of this app, and it cannot be automated
+  or skipped.
+- Automation only runs while explicitly started, and only reacts to on-screen text that already
+  exists — it does not infer intent, use OCR, or read screen pixels.
+
+## Changing text, waits, and swipe coordinates
+
+Everything tunable lives in the `AutomationConfig` object at the top of
+`TextAutomationAccessibilityService.kt`:
+
+```kotlin
+private object AutomationConfig {
+    const val LIKE_VIDEO_TEXT = "Like video"
+    const val SKIP_TEXT = "Skip"
+    const val LOADING_TEXT = "Loading"
+
+    const val INITIAL_DELAY_MS = 5000L
+    const val WAIT_AFTER_LIKE_MS = 5000L
+    const val WAIT_BETWEEN_SWIPES_MS = 500L
+    const val WAIT_AFTER_SKIP_MS = 4000L
+    const val MAIN_SCAN_INTERVAL_MS = 1000L
+    const val LOADING_SETTLE_DELAY_MS = 500L
+    const val LOADING_TIMEOUT_MS = 30000L
+
+    const val TAP_DURATION_MS = 60L
+    const val DOUBLE_TAP_GAP_MS = 150L
+    const val SWIPE_START_X_RATIO = 0.08f
+    const val SWIPE_END_X_RATIO = 0.82f
+    const val SWIPE_Y_RATIO = 0.50f
+    const val SWIPE_DURATION_MS = 300L
+}
+```
+
+Change the text constants to match a different target app's wording, adjust the `*_MS` delays to
+retime the routine, or adjust the `SWIPE_*_RATIO` values (fractions of screen width/height) to
+change where the swipe-back gesture starts and ends. No other file needs to change for these kinds
+of tweaks.

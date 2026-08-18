@@ -1,5 +1,28 @@
 <resources>
     <string name="app_name">Auto Text Tapper</string>
     <string name="accessibility_service_label">Auto Text Tapper service</string>
-    <string name="accessibility_service_description">User-controlled automation that finds configured visible text and performs taps.</string>
+    <string name="accessibility_service_description">User-controlled automation that finds configured visible text (\"Like video\", \"Skip\", \"Loading\") on the current screen and performs taps/swipes on behalf of the device owner. It only acts while explicitly started from the app and stops immediately when Stop is pressed.</string>
+
+    <string name="button_open_accessibility_settings">Open Accessibility Settings</string>
+    <string name="button_start">Start (5-second delay)</string>
+    <string name="button_stop">Stop</string>
+
+    <string name="disclosure_text">Accessibility permission is required for user-controlled automation. Use only on screens and apps you are authorized to automate.</string>
+
+    <string name="status_service_disabled">Accessibility service is disabled. Enable it, then press Start.</string>
+    <string name="status_service_ready">Service enabled and ready. Press Start when ready.</string>
+    <string name="status_service_not_connected">Service is not connected yet. Turn it off/on in Accessibility Settings, then try again.</string>
+    <string name="status_started_initial_wait">Started: waiting 5 seconds</string>
+    <string name="status_searching">Searching for Like video / Skip</string>
+    <string name="status_like_clicked">Like video clicked: waiting 5 seconds</string>
+    <string name="status_double_tap">Double-tapping screen centre</string>
+    <string name="status_first_swipe">First swipe-back</string>
+    <string name="status_wait_between_swipes">Waiting 0.5 seconds</string>
+    <string name="status_second_swipe">Second swipe-back</string>
+    <string name="status_waiting_for_loading">Waiting for Loading</string>
+    <string name="status_loading_detected">Loading detected. Waiting for it to finish.</string>
+    <string name="status_loading_finished">Loading finished; restarting scan</string>
+    <string name="status_skip_clicked">Skip clicked: waiting 4 seconds</string>
+    <string name="status_gesture_interrupted">Gesture interrupted; returning to scan</string>
+    <string name="status_stopped">Stopped</string>
 </resources>
