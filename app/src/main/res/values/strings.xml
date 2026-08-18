@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Auto Text Tapper</string>
+    <string name="accessibility_service_label">Auto Text Tapper service</string>
+    <string name="accessibility_service_description">User-controlled automation that finds configured visible text and performs taps.</string>
+</resources>
