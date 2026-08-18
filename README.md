@@ -35,12 +35,13 @@ Start -> wait 5s -> Main Scan (Like video priority over Skip)
 1. Click **Like video**.
 2. Wait 5 seconds.
 3. Double-tap the exact centre of the screen (two ~60 ms taps, ~150 ms apart).
-4. Swipe back (left → right, 8% → 82% of screen width, 50% height, 300 ms).
-5. Wait 0.5 seconds.
-6. Swipe back again (same gesture).
-7. Wait for the "Loading" text to appear and then disappear (checked every second and on every
+4. Double-tap the system Recents/Overview action (`GLOBAL_ACTION_RECENTS` pressed twice, ~150 ms
+   apart) — the first press opens the recent-apps screen, the second press switches straight to
+   the app that was open right before the current one, exactly like physically double-pressing the
+   Overview button. No on-screen swipe coordinates are involved.
+5. Wait for the "Loading" text to appear and then disappear (checked every second and on every
    window/content-change event; 30-second timeout if "Loading" never appears at all).
-8. Once loading is gone, wait 0.5 seconds extra, then return to Main Scan.
+6. Once loading is gone, wait 0.5 seconds extra, then return to Main Scan.
 
 **Priority rule:** if "Like video" and "Skip" are both visible, only "Like video" is clicked. Skip
 is only ever considered when "Like video" is completely absent from the screen.
@@ -120,7 +121,7 @@ app/build/outputs/apk/debug/app-debug.apk
 - Automation only runs while explicitly started, and only reacts to on-screen text that already
   exists — it does not infer intent, use OCR, or read screen pixels.
 
-## Changing text, waits, and swipe coordinates
+## Changing text, waits, and gesture timing
 
 Everything tunable lives in the `AutomationConfig` object at the top of
 `TextAutomationAccessibilityService.kt`:
@@ -133,7 +134,6 @@ private object AutomationConfig {
 
     const val INITIAL_DELAY_MS = 5000L
     const val WAIT_AFTER_LIKE_MS = 5000L
-    const val WAIT_BETWEEN_SWIPES_MS = 500L
     const val WAIT_AFTER_SKIP_MS = 4000L
     const val MAIN_SCAN_INTERVAL_MS = 1000L
     const val LOADING_SETTLE_DELAY_MS = 500L
@@ -141,14 +141,11 @@ private object AutomationConfig {
 
     const val TAP_DURATION_MS = 60L
     const val DOUBLE_TAP_GAP_MS = 150L
-    const val SWIPE_START_X_RATIO = 0.08f
-    const val SWIPE_END_X_RATIO = 0.82f
-    const val SWIPE_Y_RATIO = 0.50f
-    const val SWIPE_DURATION_MS = 300L
+    const val RECENTS_DOUBLE_TAP_GAP_MS = 150L
 }
 ```
 
 Change the text constants to match a different target app's wording, adjust the `*_MS` delays to
-retime the routine, or adjust the `SWIPE_*_RATIO` values (fractions of screen width/height) to
-change where the swipe-back gesture starts and ends. No other file needs to change for these kinds
-of tweaks.
+retime the routine, or adjust `RECENTS_DOUBLE_TAP_GAP_MS` to widen/narrow the gap between the two
+`GLOBAL_ACTION_RECENTS` presses used to jump back to the previous app. No other file needs to
+change for these kinds of tweaks.

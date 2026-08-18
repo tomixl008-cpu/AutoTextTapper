@@ -23,7 +23,6 @@ private object AutomationConfig {
 
     const val INITIAL_DELAY_MS = 5000L
     const val WAIT_AFTER_LIKE_MS = 5000L
-    const val WAIT_BETWEEN_SWIPES_MS = 500L
     const val WAIT_AFTER_SKIP_MS = 4000L
     const val MAIN_SCAN_INTERVAL_MS = 1000L
     const val LOADING_SETTLE_DELAY_MS = 500L
@@ -31,10 +30,10 @@ private object AutomationConfig {
 
     const val TAP_DURATION_MS = 60L
     const val DOUBLE_TAP_GAP_MS = 150L
-    const val SWIPE_START_X_RATIO = 0.08f
-    const val SWIPE_END_X_RATIO = 0.82f
-    const val SWIPE_Y_RATIO = 0.50f
-    const val SWIPE_DURATION_MS = 300L
+
+    /** Gap between the two GLOBAL_ACTION_RECENTS presses that "double tap" the recents
+     *  button to jump straight to the previously used app (same as pressing Overview twice). */
+    const val RECENTS_DOUBLE_TAP_GAP_MS = 150L
 }
 
 /** Finite states for the automation routine. Exactly one action runs per transition. */
@@ -44,9 +43,8 @@ enum class AutomationState {
     FIND_LIKE_OR_SKIP,
     WAIT_AFTER_LIKE,
     DOUBLE_TAP_CENTER,
-    FIRST_SWIPE_BACK,
-    WAIT_BETWEEN_SWIPES,
-    SECOND_SWIPE_BACK,
+    OPEN_RECENTS,
+    SWITCH_TO_PREVIOUS_APP,
     WAIT_FOR_LOADING,
     WAIT_FOR_LOADING_TO_FINISH,
     WAIT_AFTER_LOADING_FINISH,
@@ -207,7 +205,7 @@ class TextAutomationAccessibilityService : AccessibilityService() {
             doubleTapCentre { success ->
                 if (!isCurrentSession(session)) return@doubleTapCentre
                 if (success) {
-                    performFirstSwipeBack(session)
+                    switchToPreviousApp(session)
                 } else {
                     abortRouteToMainScan(session)
                 }
@@ -215,35 +213,29 @@ class TextAutomationAccessibilityService : AccessibilityService() {
         }, AutomationConfig.WAIT_AFTER_LIKE_MS)
     }
 
-    private fun performFirstSwipeBack(session: Int) {
-        state = AutomationState.FIRST_SWIPE_BACK
-        AutomationStatusHolder.update(getString(R.string.status_first_swipe))
-        swipeBack { success ->
-            if (!isCurrentSession(session)) return@swipeBack
-            if (!success) {
-                abortRouteToMainScan(session)
-                return@swipeBack
-            }
-            state = AutomationState.WAIT_BETWEEN_SWIPES
-            AutomationStatusHolder.update(getString(R.string.status_wait_between_swipes))
-            handler.postDelayed({
-                if (!isCurrentSession(session)) return@postDelayed
-                performSecondSwipeBack(session)
-            }, AutomationConfig.WAIT_BETWEEN_SWIPES_MS)
+    /**
+     * Double-tap the Recents/Overview action: one GLOBAL_ACTION_RECENTS press opens the
+     * recent-apps screen, a second press shortly after switches straight to the app that
+     * was open before the current one (same behaviour as physically double-pressing the
+     * Overview button). No on-screen swipe coordinates are needed for this.
+     */
+    private fun switchToPreviousApp(session: Int) {
+        state = AutomationState.OPEN_RECENTS
+        AutomationStatusHolder.update(getString(R.string.status_open_recents))
+        if (!performGlobalAction(GLOBAL_ACTION_RECENTS)) {
+            abortRouteToMainScan(session)
+            return
         }
-    }
-
-    private fun performSecondSwipeBack(session: Int) {
-        state = AutomationState.SECOND_SWIPE_BACK
-        AutomationStatusHolder.update(getString(R.string.status_second_swipe))
-        swipeBack { success ->
-            if (!isCurrentSession(session)) return@swipeBack
-            if (!success) {
+        handler.postDelayed({
+            if (!isCurrentSession(session)) return@postDelayed
+            state = AutomationState.SWITCH_TO_PREVIOUS_APP
+            AutomationStatusHolder.update(getString(R.string.status_switch_previous_app))
+            if (!performGlobalAction(GLOBAL_ACTION_RECENTS)) {
                 abortRouteToMainScan(session)
-                return@swipeBack
+                return@postDelayed
             }
             beginLoadingWait(session)
-        }
+        }, AutomationConfig.RECENTS_DOUBLE_TAP_GAP_MS)
     }
 
     private fun abortRouteToMainScan(session: Int) {
@@ -428,32 +420,6 @@ class TextAutomationAccessibilityService : AccessibilityService() {
             handler.postDelayed({
                 tapAt(cx, cy) { secondTapOk -> onResult(secondTapOk) }
             }, AutomationConfig.DOUBLE_TAP_GAP_MS)
-        }
-    }
-
-    private fun swipeBack(onResult: (Boolean) -> Unit) {
-        val metrics = resources.displayMetrics
-        val startX = metrics.widthPixels * AutomationConfig.SWIPE_START_X_RATIO
-        val endX = metrics.widthPixels * AutomationConfig.SWIPE_END_X_RATIO
-        val y = metrics.heightPixels * AutomationConfig.SWIPE_Y_RATIO
-
-        val path = Path().apply {
-            moveTo(startX, y)
-            lineTo(endX, y)
-        }
-        val stroke = GestureDescription.StrokeDescription(path, 0, AutomationConfig.SWIPE_DURATION_MS)
-        val gesture = GestureDescription.Builder().addStroke(stroke).build()
-        val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
-            override fun onCompleted(gestureDescription: GestureDescription?) {
-                onResult(true)
-            }
-
-            override fun onCancelled(gestureDescription: GestureDescription?) {
-                onResult(false)
-            }
-        }, handler)
-        if (!dispatched) {
-            onResult(false)
         }
     }
 

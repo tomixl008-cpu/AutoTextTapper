@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">Auto Text Tapper</string>
     <string name="accessibility_service_label">Auto Text Tapper service</string>
-    <string name="accessibility_service_description">User-controlled automation that finds configured visible text (\"Like video\", \"Skip\", \"Loading\") on the current screen and performs taps/swipes on behalf of the device owner. It only acts while explicitly started from the app and stops immediately when Stop is pressed.</string>
+    <string name="accessibility_service_description">User-controlled automation that finds configured visible text (\"Like video\", \"Skip\", \"Loading\") on the current screen and performs taps and app-switch actions on behalf of the device owner. It only acts while explicitly started from the app and stops immediately when Stop is pressed.</string>
 
     <string name="button_open_accessibility_settings">Open Accessibility Settings</string>
     <string name="button_start">Start (5-second delay)</string>
@@ -16,9 +16,8 @@
     <string name="status_searching">Searching for Like video / Skip</string>
     <string name="status_like_clicked">Like video clicked: waiting 5 seconds</string>
     <string name="status_double_tap">Double-tapping screen centre</string>
-    <string name="status_first_swipe">First swipe-back</string>
-    <string name="status_wait_between_swipes">Waiting 0.5 seconds</string>
-    <string name="status_second_swipe">Second swipe-back</string>
+    <string name="status_open_recents">Opening recent apps</string>
+    <string name="status_switch_previous_app">Switching to previous app</string>
     <string name="status_waiting_for_loading">Waiting for Loading</string>
     <string name="status_loading_detected">Loading detected. Waiting for it to finish.</string>
     <string name="status_loading_finished">Loading finished; restarting scan</string>
