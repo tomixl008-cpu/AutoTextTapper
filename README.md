@@ -41,7 +41,7 @@ Start -> wait 5s -> Main Scan (Like video priority over Skip)
    Overview button. No on-screen swipe coordinates are involved.
 5. Wait for the "Loading" text to appear and then disappear (checked every second and on every
    window/content-change event; 30-second timeout if "Loading" never appears at all).
-6. Once loading is gone, wait 0.5 seconds extra, then return to Main Scan.
+6. Once loading is gone, wait 1 second extra, then return to Main Scan.
 
 **Priority rule:** if "Like video" and "Skip" are both visible, only "Like video" is clicked. Skip
 is only ever considered when "Like video" is completely absent from the screen.

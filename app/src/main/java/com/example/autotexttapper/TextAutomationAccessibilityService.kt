@@ -25,7 +25,7 @@ private object AutomationConfig {
     const val WAIT_AFTER_LIKE_MS = 5000L
     const val WAIT_AFTER_SKIP_MS = 4000L
     const val MAIN_SCAN_INTERVAL_MS = 1000L
-    const val LOADING_SETTLE_DELAY_MS = 500L
+    const val LOADING_SETTLE_DELAY_MS = 1000L
     const val LOADING_TIMEOUT_MS = 30000L
 
     const val TAP_DURATION_MS = 60L
