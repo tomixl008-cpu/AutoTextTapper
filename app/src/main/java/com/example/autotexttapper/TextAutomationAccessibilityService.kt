@@ -73,6 +73,18 @@ class TextAutomationAccessibilityService : AccessibilityService() {
     private var loadingCheckScheduled = false
     private var loadingWaitStartElapsed = 0L
 
+    private var mainScanSession = 0
+    private val mainScanRunnable = Runnable {
+        mainScanScheduled = false
+        performMainScan(mainScanSession)
+    }
+
+    private var loadingCheckSession = 0
+    private val loadingCheckRunnable = Runnable {
+        loadingCheckScheduled = false
+        performLoadingCheck(loadingCheckSession)
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -86,9 +98,10 @@ class TextAutomationAccessibilityService : AccessibilityService() {
             return
         }
         when (state) {
-            AutomationState.FIND_LIKE_OR_SKIP -> scheduleMainScan(sessionId, 0L)
+            AutomationState.FIND_LIKE_OR_SKIP -> scheduleMainScan(sessionId, 0L, immediate = true)
             AutomationState.WAIT_FOR_LOADING,
-            AutomationState.WAIT_FOR_LOADING_TO_FINISH -> scheduleLoadingCheck(sessionId, 0L)
+            AutomationState.WAIT_FOR_LOADING_TO_FINISH ->
+                scheduleLoadingCheck(sessionId, 0L, immediate = true)
             else -> Unit
         }
     }
@@ -128,7 +141,7 @@ class TextAutomationAccessibilityService : AccessibilityService() {
             if (!isCurrentSession(session)) return@postDelayed
             state = AutomationState.FIND_LIKE_OR_SKIP
             AutomationStatusHolder.update(getString(R.string.status_searching))
-            scheduleMainScan(session, 0L)
+            scheduleMainScan(session, 0L, immediate = true)
         }, AutomationConfig.INITIAL_DELAY_MS)
     }
 
@@ -147,14 +160,18 @@ class TextAutomationAccessibilityService : AccessibilityService() {
     // B. Main scan rule — Like video always has priority over Skip
     // ------------------------------------------------------------------
 
-    private fun scheduleMainScan(session: Int, delayMs: Long) {
+    private fun scheduleMainScan(session: Int, delayMs: Long, immediate: Boolean = false) {
         if (!isCurrentSession(session) || state != AutomationState.FIND_LIKE_OR_SKIP) return
+        mainScanSession = session
+        if (immediate) {
+            handler.removeCallbacks(mainScanRunnable)
+            mainScanScheduled = true
+            handler.post(mainScanRunnable)
+            return
+        }
         if (mainScanScheduled) return
         mainScanScheduled = true
-        handler.postDelayed({
-            mainScanScheduled = false
-            performMainScan(session)
-        }, delayMs)
+        handler.postDelayed(mainScanRunnable, delayMs)
     }
 
     private fun performMainScan(session: Int) {
@@ -253,22 +270,26 @@ class TextAutomationAccessibilityService : AccessibilityService() {
         state = AutomationState.WAIT_FOR_LOADING
         loadingWaitStartElapsed = SystemClock.elapsedRealtime()
         AutomationStatusHolder.update(getString(R.string.status_waiting_for_loading))
-        scheduleLoadingCheck(session, 0L)
+        scheduleLoadingCheck(session, 0L, immediate = true)
     }
 
-    private fun scheduleLoadingCheck(session: Int, delayMs: Long) {
+    private fun scheduleLoadingCheck(session: Int, delayMs: Long, immediate: Boolean = false) {
         if (!isCurrentSession(session)) return
         if (state != AutomationState.WAIT_FOR_LOADING &&
             state != AutomationState.WAIT_FOR_LOADING_TO_FINISH
         ) {
             return
         }
+        loadingCheckSession = session
+        if (immediate) {
+            handler.removeCallbacks(loadingCheckRunnable)
+            loadingCheckScheduled = true
+            handler.post(loadingCheckRunnable)
+            return
+        }
         if (loadingCheckScheduled) return
         loadingCheckScheduled = true
-        handler.postDelayed({
-            loadingCheckScheduled = false
-            performLoadingCheck(session)
-        }, delayMs)
+        handler.postDelayed(loadingCheckRunnable, delayMs)
     }
 
     private fun performLoadingCheck(session: Int) {
@@ -276,10 +297,17 @@ class TextAutomationAccessibilityService : AccessibilityService() {
 
         val root = rootInActiveWindow
         val loadingVisible = findNodeByText(root, AutomationConfig.LOADING_TEXT) != null
+        // Some apps show a loading spinner with no accessible "Loading" label at all, so also
+        // treat the target screen actually being ready (Like video / Skip visible again) as an
+        // immediate "loading is done" signal instead of always waiting out the full timeout.
+        val targetScreenReady = findNodeByText(root, AutomationConfig.LIKE_VIDEO_TEXT) != null ||
+            findNodeByText(root, AutomationConfig.SKIP_TEXT) != null
 
         when (state) {
             AutomationState.WAIT_FOR_LOADING -> {
-                if (loadingVisible) {
+                if (targetScreenReady) {
+                    finishLoadingWait(session)
+                } else if (loadingVisible) {
                     state = AutomationState.WAIT_FOR_LOADING_TO_FINISH
                     AutomationStatusHolder.update(getString(R.string.status_loading_detected))
                     scheduleLoadingCheck(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
@@ -294,15 +322,10 @@ class TextAutomationAccessibilityService : AccessibilityService() {
             }
 
             AutomationState.WAIT_FOR_LOADING_TO_FINISH -> {
-                if (loadingVisible) {
+                if (loadingVisible && !targetScreenReady) {
                     scheduleLoadingCheck(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
                 } else {
-                    state = AutomationState.WAIT_AFTER_LOADING_FINISH
-                    AutomationStatusHolder.update(getString(R.string.status_loading_finished))
-                    handler.postDelayed({
-                        if (!isCurrentSession(session)) return@postDelayed
-                        returnToMainScanAfterLoading(session)
-                    }, AutomationConfig.LOADING_SETTLE_DELAY_MS)
+                    finishLoadingWait(session)
                 }
             }
 
@@ -310,11 +333,20 @@ class TextAutomationAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun finishLoadingWait(session: Int) {
+        state = AutomationState.WAIT_AFTER_LOADING_FINISH
+        AutomationStatusHolder.update(getString(R.string.status_loading_finished))
+        handler.postDelayed({
+            if (!isCurrentSession(session)) return@postDelayed
+            returnToMainScanAfterLoading(session)
+        }, AutomationConfig.LOADING_SETTLE_DELAY_MS)
+    }
+
     private fun returnToMainScanAfterLoading(session: Int) {
         if (!isCurrentSession(session)) return
         state = AutomationState.FIND_LIKE_OR_SKIP
         AutomationStatusHolder.update(getString(R.string.status_searching))
-        scheduleMainScan(session, 0L)
+        scheduleMainScan(session, 0L, immediate = true)
     }
 
     // ------------------------------------------------------------------
@@ -328,7 +360,7 @@ class TextAutomationAccessibilityService : AccessibilityService() {
             if (!isCurrentSession(session)) return@postDelayed
             state = AutomationState.FIND_LIKE_OR_SKIP
             AutomationStatusHolder.update(getString(R.string.status_searching))
-            scheduleMainScan(session, 0L)
+            scheduleMainScan(session, 0L, immediate = true)
         }, AutomationConfig.WAIT_AFTER_SKIP_MS)
     }
 
