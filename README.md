@@ -32,19 +32,31 @@ Start -> wait 5s -> Main Scan (Like video priority over Skip)
 
 ### Like video route
 
-1. Click **Like video**.
+This route spans two apps: **Fantik** (`com.tikboost.fantik`), where Main Scan runs, and
+**TikTok** (`com.zhiliaoapp.musically`), which Fantik hands off to when "Like video" is clicked.
+
+1. Click **Like video** (on Fantik). Fantik itself brings TikTok to the foreground.
 2. Wait 2 seconds.
-3. Double-tap the exact centre of the screen (two ~60 ms taps, ~150 ms apart).
-4. Double-tap the system Recents/Overview action (`GLOBAL_ACTION_RECENTS` pressed twice, ~150 ms
-   apart) — the first press opens the recent-apps screen, the second press switches straight to
-   the app that was open right before the current one, exactly like physically double-pressing the
-   Overview button. No on-screen swipe coordinates are involved.
-5. Wait for the "Loading" text to appear and then disappear (checked every second and on every
-   window/content-change event; 30-second timeout if "Loading" never appears at all).
-6. Once loading is gone, wait 1 second extra, then return to Main Scan.
+3. Double-tap the exact centre of the screen — TikTok's native double-tap-to-like gesture (two
+   ~60 ms taps, ~150 ms apart). Before tapping, the service verifies TikTok is actually in the
+   foreground; if it isn't yet, it aborts back to Main Scan instead of blind-tapping the wrong app.
+4. Check for the red-heart like confirmation (❤️). If it hasn't appeared, wait 1 second and
+   double-tap again, up to 3 attempts, so a missing/misdetected heart can never stall automation.
+5. Double-tap the system Recents/Overview action (`GLOBAL_ACTION_RECENTS` pressed twice, ~150 ms
+   apart) — the first press opens the recent-apps screen, the second press switches straight back
+   to Fantik (the app that was open right before TikTok), exactly like physically double-pressing
+   the Overview button. No on-screen swipe coordinates are involved.
+6. Wait for the "Loading" text to appear and then disappear on Fantik (checked every second and on
+   every window/content-change event; 30-second timeout if "Loading" never appears at all).
+7. Once loading is gone, wait 1 second extra, then return to Main Scan.
 
 **Priority rule:** if "Like video" and "Skip" are both visible, only "Like video" is clicked. Skip
 is only ever considered when "Like video" is completely absent from the screen.
+
+**App scoping:** Main Scan only ever reads/clicks when Fantik is the foreground app, and the
+double-tap/like-confirmation step only ever acts when TikTok is the foreground app. If the user
+switches to any third app (WhatsApp, Chrome, etc.) mid-routine, the service takes no action at all
+and simply waits for Fantik or TikTok to come back to the foreground.
 
 ### Skip route
 

@@ -24,6 +24,10 @@ private object AutomationConfig {
     /** Text/content-description that confirms the like actually registered on screen. */
     const val LIKE_CONFIRMATION_TEXT = "❤️"
 
+    /** Only these two apps are ever clicked/tapped into. Any other foreground app is ignored. */
+    const val TARGET_PACKAGE_FANTIK = "com.tikboost.fantik"
+    const val TARGET_PACKAGE_TIKTOK = "com.zhiliaoapp.musically"
+
     const val INITIAL_DELAY_MS = 5000L
     const val WAIT_AFTER_LIKE_MS = 2000L
     const val WAIT_AFTER_SKIP_MS = 4000L
@@ -188,6 +192,14 @@ class TextAutomationAccessibilityService : AccessibilityService() {
         if (!isCurrentSession(session) || state != AutomationState.FIND_LIKE_OR_SKIP) return
 
         val root = rootInActiveWindow
+        if (root?.packageName?.toString() != AutomationConfig.TARGET_PACKAGE_FANTIK) {
+            // Some other app is in the foreground (user switched away) — never click here,
+            // just keep waiting for Fantik to come back.
+            AutomationStatusHolder.update(getString(R.string.status_waiting_for_fantik))
+            scheduleMainScan(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
+            return
+        }
+
         val likeNode = findNodeByText(root, AutomationConfig.LIKE_VIDEO_TEXT)
         if (likeNode != null) {
             attemptClick(likeNode) { clicked ->
@@ -241,6 +253,12 @@ class TextAutomationAccessibilityService : AccessibilityService() {
      */
     private fun doubleTapAndConfirmLike(session: Int) {
         if (!isCurrentSession(session)) return
+        if (rootInActiveWindow?.packageName?.toString() != AutomationConfig.TARGET_PACKAGE_TIKTOK) {
+            // Fantik hasn't handed off to TikTok (yet) — never blind-tap whatever else is
+            // on screen. Bail back to the main scan instead of guessing.
+            abortRouteToMainScan(session)
+            return
+        }
         likeConfirmAttempts++
         AutomationStatusHolder.update(getString(R.string.status_double_tap))
         doubleTapCentre { success ->
