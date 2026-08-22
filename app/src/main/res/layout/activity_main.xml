@@ -19,6 +19,7 @@
 
         <!-- Glowing mark, no app name shown anywhere on this screen -->
         <ImageView
+            android:id="@+id/logoMark"
             android:layout_width="64dp"
             android:layout_height="64dp"
             android:background="@drawable/bg_logo_mark"
@@ -29,6 +30,7 @@
 
         <!-- Status panel -->
         <LinearLayout
+            android:id="@+id/statusCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="28dp"
@@ -87,6 +89,7 @@
 
         <!-- Priority pill -->
         <TextView
+            android:id="@+id/priorityPill"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
@@ -155,6 +158,7 @@
 
         <!-- Disclosure -->
         <LinearLayout
+            android:id="@+id/disclosureBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="26dp"
