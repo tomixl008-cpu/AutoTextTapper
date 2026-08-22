@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -343,7 +344,7 @@ fun CycleDial(
 }
 
 private fun DrawScope.scaleHorizontal(scaleX: Float, pivot: Offset, block: DrawScope.() -> Unit) {
-    androidx.compose.ui.graphics.drawscope.scale(scaleX, 1f, pivot, block)
+    scale(scaleX, 1f, pivot, block)
 }
 
 private fun DrawScope.drawPhaseArcs(cx: Float, cy: Float, radius: Float, activeSegment: Int, cycleDone: Int, color: Color) {

@@ -1,22 +1,23 @@
 package com.example.autotexttapper.ui.atmosphere
 
+import android.graphics.Paint
+import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.autotexttapper.automation.ServiceState
@@ -53,9 +54,17 @@ private class RainColumn(seed: Int) {
 
 @Composable
 fun RainField(state: ServiceState, reduceMotion: Boolean, modifier: Modifier = Modifier) {
-    val textMeasurer = rememberTextMeasurer()
     val latestState = rememberUpdatedState(state)
     val color = colorFor(state)
+    val density = LocalDensity.current
+
+    val paint = remember(density) {
+        Paint().apply {
+            typeface = Typeface.MONOSPACE
+            isAntiAlias = true
+            textSize = with(density) { 12.sp.toPx() }
+        }
+    }
 
     // A frame counter that Canvas reads, so mutating the plain (non-Compose-state) column
     // list each frame still triggers a redraw.
@@ -97,7 +106,7 @@ fun RainField(state: ServiceState, reduceMotion: Boolean, modifier: Modifier = M
     }
 
     Canvas(modifier = modifier) {
-        // Reading frameTick here (via the closure) ties this draw to the frame clock.
+        // Reading frameTick here ties this draw to the frame clock.
         @Suppress("UNUSED_EXPRESSION") frameTick
 
         val columnWidthPx = 13.dp.toPx()
@@ -110,19 +119,23 @@ fun RainField(state: ServiceState, reduceMotion: Boolean, modifier: Modifier = M
             initializedWidth = size.width
         }
 
-        columns.forEachIndexed { index, col ->
-            val headY = col.y
-            for (t in 0 until col.trailLength) {
-                val glyphY = headY - t * glyphHeightPx
-                if (glyphY < -glyphHeightPx || glyphY > size.height + glyphHeightPx) continue
-                val fade = 1f - (t.toFloat() / col.trailLength)
-                val alpha = (fade * ALPHA_CEILING).coerceIn(0f, ALPHA_CEILING)
-                val text = col.glyphs[t].toString()
-                val layout = textMeasurer.measure(
-                    text,
-                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = color.copy(alpha = alpha))
-                )
-                drawText(layout, topLeft = Offset(index * columnWidthPx, glyphY))
+        drawIntoCanvas { canvas ->
+            val nativeCanvas = canvas.nativeCanvas
+            columns.forEachIndexed { index, col ->
+                val headY = col.y
+                for (t in 0 until col.trailLength) {
+                    val glyphY = headY - t * glyphHeightPx
+                    if (glyphY < -glyphHeightPx || glyphY > size.height + glyphHeightPx) continue
+                    val fade = 1f - (t.toFloat() / col.trailLength)
+                    val alpha = (fade * ALPHA_CEILING).coerceIn(0f, ALPHA_CEILING)
+                    paint.color = color.copy(alpha = alpha).toArgb()
+                    nativeCanvas.drawText(
+                        col.glyphs[t].toString(),
+                        index * columnWidthPx,
+                        glyphY,
+                        paint
+                    )
+                }
             }
         }
     }

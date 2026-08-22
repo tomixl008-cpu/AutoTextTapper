@@ -123,7 +123,7 @@ fun LogConsole(entries: List<LogEntry>, modifier: Modifier = Modifier) {
                     }
                 }
 
-                AnimatedVisibility(
+                androidx.compose.animation.AnimatedVisibility(
                     visible = !isAtBottom && entries.isNotEmpty(),
                     enter = fadeIn(),
                     exit = fadeOut(),
