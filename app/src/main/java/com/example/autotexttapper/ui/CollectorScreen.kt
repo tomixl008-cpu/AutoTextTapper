@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -114,14 +116,18 @@ fun CollectorScreen() {
 
         // Layer 1 — content. statusBarsPadding/navigationBarsPadding keep the readable
         // content clear of the time/battery area and the gesture bar, while the atmosphere
-        // layers behind it still draw fully edge-to-edge.
+        // layers behind it still draw fully edge-to-edge. Centered vertically so there's
+        // empty space above and below on screens taller than the content; scrolls instead
+        // of clipping on screens shorter than the content.
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.screenPadding)
                 .padding(top = 12.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             HeaderStrip(state = displayedState, reduceMotion = reduceMotion, modifier = Modifier.fillMaxWidth())
