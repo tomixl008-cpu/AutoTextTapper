@@ -5,192 +5,186 @@
     android:layout_height="match_parent"
     android:fillViewport="true">
 
-    <LinearLayout
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingHorizontal="24dp"
-        android:paddingTop="36dp"
-        android:paddingBottom="28dp">
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_hacker_screen">
 
-        <!-- Header -->
+    <LinearLayout
+        android:layout_width="300dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center_horizontal"
+        android:orientation="vertical">
+
+        <!-- Glowing mark, no app name shown anywhere on this screen -->
+        <ImageView
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:background="@drawable/bg_logo_mark"
+            android:contentDescription="@null"
+            android:padding="16dp"
+            android:src="@drawable/ic_launcher_foreground"
+            app:tint="@color/hacker_neon_green" />
+
+        <!-- Status panel -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <ImageView
-                android:layout_width="52dp"
-                android:layout_height="52dp"
-                android:background="@drawable/bg_priority_chip"
-                android:contentDescription="@null"
-                android:padding="12dp"
-                android:src="@drawable/ic_launcher_foreground"
-                app:tint="?attr/colorPrimary" />
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="14dp"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/titleText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/app_name"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textSize="22sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/app_subtitle"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textSize="13sp" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- Status card -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            app:cardBackgroundColor="?attr/colorSurface"
-            app:cardCornerRadius="20dp"
-            app:cardElevation="0dp"
-            app:strokeColor="?attr/colorOutline"
-            app:strokeWidth="1dp">
+            android:layout_marginTop="28dp"
+            android:background="@drawable/bg_glow_green"
+            android:orientation="vertical"
+            android:padding="18dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                <FrameLayout
+                    android:layout_width="18dp"
+                    android:layout_height="18dp">
+
+                    <View
+                        android:id="@+id/glowRing"
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:layout_gravity="center"
+                        android:background="@drawable/glow_ring" />
 
                     <View
                         android:id="@+id/statusDot"
-                        android:layout_width="10dp"
-                        android:layout_height="10dp"
-                        android:background="@drawable/status_dot" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:letterSpacing="0.08"
-                        android:text="@string/status_label"
-                        android:textAllCaps="true"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="11sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
+                        android:layout_width="9dp"
+                        android:layout_height="9dp"
+                        android:layout_gravity="center"
+                        android:background="@drawable/status_dot_core" />
+                </FrameLayout>
 
                 <TextView
-                    android:id="@+id/statusText"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="@string/status_service_disabled"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textSize="16sp" />
+                    android:layout_marginStart="10dp"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.12"
+                    android:text="@string/status_label"
+                    android:textAllCaps="true"
+                    android:textColor="@color/hacker_text_dim"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
             </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:fontFamily="monospace"
+                android:text="@string/status_service_disabled"
+                android:textColor="@color/hacker_text_primary"
+                android:textSize="15sp" />
+        </LinearLayout>
 
         <!-- Priority pill -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:background="@drawable/bg_priority_chip"
-            android:paddingHorizontal="16dp"
-            android:paddingVertical="10dp"
+            android:background="@drawable/bg_pill_cyan"
+            android:fontFamily="monospace"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="8dp"
             android:text="@string/priority_note"
-            android:textColor="?attr/colorOnPrimaryContainer"
-            android:textSize="13sp" />
+            android:textColor="@color/hacker_neon_cyan"
+            android:textSize="12sp" />
 
         <!-- Actions -->
-        <com.google.android.material.button.MaterialButton
+        <Button
             android:id="@+id/openAccessibilityButton"
-            style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:layout_marginTop="28dp"
+            android:layout_marginTop="30dp"
+            android:background="@drawable/bg_glow_cyan"
+            android:drawablePadding="10dp"
+            android:fontFamily="monospace"
+            android:gravity="center"
+            android:paddingHorizontal="16dp"
             android:text="@string/button_open_accessibility_settings"
-            android:textAllCaps="false"
-            android:textSize="15sp"
-            app:cornerRadius="16dp"
-            app:icon="@drawable/ic_settings"
-            app:iconGravity="textStart"
-            app:iconTint="?attr/colorPrimary" />
+            android:textAllCaps="true"
+            android:textColor="@color/hacker_neon_cyan"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            app:drawableStartCompat="@drawable/ic_settings"
+            app:drawableTint="@color/hacker_neon_cyan" />
 
-        <com.google.android.material.button.MaterialButton
+        <Button
             android:id="@+id/startButton"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:layout_marginTop="12dp"
-            android:backgroundTint="?attr/colorPrimary"
+            android:layout_marginTop="14dp"
+            android:background="@drawable/bg_glow_green"
+            android:drawablePadding="10dp"
+            android:fontFamily="monospace"
+            android:gravity="center"
+            android:paddingHorizontal="16dp"
             android:text="@string/button_start"
-            android:textAllCaps="false"
-            android:textColor="?attr/colorOnPrimary"
-            android:textSize="15sp"
-            app:cornerRadius="16dp"
-            app:icon="@drawable/ic_play"
-            app:iconGravity="textStart"
-            app:iconTint="?attr/colorOnPrimary" />
+            android:textAllCaps="true"
+            android:textColor="@color/hacker_neon_green"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            app:drawableStartCompat="@drawable/ic_play"
+            app:drawableTint="@color/hacker_neon_green" />
 
-        <com.google.android.material.button.MaterialButton
+        <Button
             android:id="@+id/stopButton"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:layout_marginTop="12dp"
-            android:backgroundTint="?attr/colorErrorContainer"
+            android:layout_marginTop="14dp"
+            android:background="@drawable/bg_glow_red"
+            android:drawablePadding="10dp"
+            android:fontFamily="monospace"
+            android:gravity="center"
+            android:paddingHorizontal="16dp"
             android:text="@string/button_stop"
-            android:textAllCaps="false"
-            android:textColor="?attr/colorOnErrorContainer"
-            android:textSize="15sp"
-            app:cornerRadius="16dp"
-            app:icon="@drawable/ic_stop"
-            app:iconGravity="textStart"
-            app:iconTint="?attr/colorOnErrorContainer" />
+            android:textAllCaps="true"
+            android:textColor="@color/hacker_neon_red"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            app:drawableStartCompat="@drawable/ic_stop"
+            app:drawableTint="@color/hacker_neon_red" />
 
         <!-- Disclosure -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:background="@drawable/bg_info_box"
+            android:layout_marginTop="26dp"
+            android:layout_marginBottom="24dp"
+            android:background="@drawable/bg_disclosure_dim"
             android:gravity="top"
             android:orientation="horizontal"
             android:padding="14dp">
 
             <ImageView
-                android:layout_width="18dp"
-                android:layout_height="18dp"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
                 android:layout_marginTop="1dp"
                 android:contentDescription="@null"
                 android:src="@drawable/ic_info"
-                app:tint="?attr/colorOnSurfaceVariant" />
+                app:tint="@color/hacker_text_dim" />
 
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="10dp"
                 android:layout_weight="1"
+                android:fontFamily="monospace"
                 android:text="@string/disclosure_text"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:textSize="12sp" />
+                android:textColor="@color/hacker_text_dim"
+                android:textSize="11sp" />
         </LinearLayout>
 
     </LinearLayout>
+
+    </FrameLayout>
 
 </androidx.core.widget.NestedScrollView>

@@ -1,7 +1,6 @@
 <resources>
-    <string name="app_name">Auto Text Tapper</string>
-    <string name="app_subtitle">Automation Assistant</string>
-    <string name="accessibility_service_label">Auto Text Tapper service</string>
+    <string name="app_name">Coin Collector</string>
+    <string name="accessibility_service_label">Coin Collector Service</string>
     <string name="accessibility_service_description">User-controlled automation that finds configured visible text (\"Like video\", \"Skip\", \"Loading\") on the current screen and performs taps and app-switch actions on behalf of the device owner. It only acts while explicitly started from the app and stops immediately when Stop is pressed.</string>
 
     <string name="button_open_accessibility_settings">Open Accessibility Settings</string>

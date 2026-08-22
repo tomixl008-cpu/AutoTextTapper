@@ -3,6 +3,9 @@
 A user-controlled Android Accessibility Service assistant, built with Kotlin and traditional XML
 Views (no Jetpack Compose).
 
+> On-device the app displays as **Coin Collector** (launcher icon/label and the in-app UI show no
+> "Auto Text Tapper" branding at all). This README keeps the project's technical/repo name.
+
 ## Authorized-use notice
 
 This app is for automating **apps, screens, and accounts that the device owner is authorized to
@@ -101,8 +104,9 @@ app/build/outputs/apk/debug/app-debug.apk
 
 1. Install the APK on the device (`adb install -r app-debug.apk`, or copy it to the device and open
    it with a file manager).
-2. Open **Auto Text Tapper**.
-3. Tap **Open Accessibility Settings**, find **Auto Text Tapper service**, and turn it on. Android
+2. Open **Coin Collector** (the app's on-device display name — the launcher icon/label is
+   intentionally generic; the project's technical/repo name remains AutoTextTapper).
+3. Tap **Open Accessibility Settings**, find **Coin Collector Service**, and turn it on. Android
    requires this step to be done manually by the device owner — the app cannot do it for you.
 4. Return to the app. The status line should read "Service enabled and ready."
 5. Navigate to the authorized target screen, then tap **Start (5-second delay)**. You have 5

@@ -1,25 +1,26 @@
 <resources>
-    <style name="Theme.AutoTextTapper" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/brand_primary</item>
-        <item name="colorPrimaryContainer">@color/brand_primary_container</item>
-        <item name="colorOnPrimary">@color/brand_on_primary</item>
-        <item name="colorOnPrimaryContainer">@color/brand_on_primary_container</item>
+    <style name="Theme.AutoTextTapper" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/hacker_neon_green</item>
+        <item name="colorOnPrimary">@color/hacker_bg</item>
 
-        <item name="colorSecondary">@color/brand_secondary</item>
-        <item name="colorSecondaryContainer">@color/brand_secondary_container</item>
+        <item name="colorSecondary">@color/hacker_neon_cyan</item>
+        <item name="colorOnSecondary">@color/hacker_bg</item>
 
-        <item name="android:colorBackground">@color/brand_background</item>
-        <item name="colorSurface">@color/brand_surface</item>
-        <item name="colorSurfaceVariant">@color/brand_surface_variant</item>
-        <item name="colorOnSurface">@color/brand_on_surface</item>
-        <item name="colorOnSurfaceVariant">@color/brand_on_surface_variant</item>
-        <item name="colorOutline">@color/brand_outline</item>
+        <item name="android:colorBackground">@color/hacker_bg</item>
+        <item name="colorSurface">@color/hacker_surface</item>
+        <item name="colorOnSurface">@color/hacker_text_primary</item>
+        <item name="colorOnSurfaceVariant">@color/hacker_text_dim</item>
+        <item name="colorOutline">@color/hacker_neon_green_dim</item>
 
-        <item name="colorError">@color/brand_error</item>
-        <item name="colorErrorContainer">@color/brand_error_container</item>
-        <item name="colorOnErrorContainer">@color/brand_on_error_container</item>
+        <item name="colorError">@color/hacker_neon_red</item>
+        <item name="colorOnErrorContainer">@color/hacker_neon_red</item>
+        <item name="colorErrorContainer">@color/hacker_bg</item>
 
-        <item name="android:statusBarColor">@color/brand_background</item>
-        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">@color/hacker_bg</item>
+        <item name="android:navigationBarColor">@color/hacker_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+
+        <item name="android:fontFamily">monospace</item>
+        <item name="fontFamily">monospace</item>
     </style>
 </resources>

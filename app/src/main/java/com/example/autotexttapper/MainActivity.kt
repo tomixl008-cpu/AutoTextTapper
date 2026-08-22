@@ -1,6 +1,8 @@
 package com.example.autotexttapper
 
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -17,6 +19,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
     private lateinit var statusDot: View
+    private lateinit var glowRing: View
+    private var glowPulse: ObjectAnimator? = null
 
     private val statusListener: (String) -> Unit = {
         runOnUiThread {
@@ -31,6 +35,13 @@ class MainActivity : AppCompatActivity() {
 
         statusText = findViewById(R.id.statusText)
         statusDot = findViewById(R.id.statusDot)
+        glowRing = findViewById(R.id.glowRing)
+
+        glowPulse = ObjectAnimator.ofFloat(glowRing, View.ALPHA, 0.35f, 1f).apply {
+            duration = 900L
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+        }
 
         findViewById<Button>(R.id.openAccessibilityButton).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -65,9 +76,11 @@ class MainActivity : AppCompatActivity() {
             statusText.text = getString(R.string.status_service_ready)
         }
         refreshStatusDot()
+        glowPulse?.start()
     }
 
     override fun onPause() {
+        glowPulse?.cancel()
         AutomationStatusHolder.removeListener(statusListener)
         super.onPause()
     }
