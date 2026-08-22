@@ -43,9 +43,12 @@ android {
 }
 
 dependencies {
+    // Pinned to versions whose AAR metadata targets compileSdk 34 (AGP 8.6.1 era). Newer
+    // compose-bom/activity/lifecycle releases require compileSdk 35-37 and AGP 9.x, which
+    // conflicts with the compileSdk 34 / AGP 8.6.1 constraints for this build.
     implementation("androidx.core:core-ktx:1.13.1")
 
-    val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
+    val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
@@ -53,9 +56,16 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
+    implementation("androidx.activity:activity-compose:1.9.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    configurations.all {
+        resolutionStrategy {
+            force("androidx.core:core-ktx:1.13.1")
+            force("androidx.core:core:1.13.1")
+        }
+    }
 }
