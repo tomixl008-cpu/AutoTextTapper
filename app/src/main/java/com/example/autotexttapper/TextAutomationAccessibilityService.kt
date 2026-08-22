@@ -2,14 +2,19 @@ package com.example.autotexttapper
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
 import android.graphics.Path
 import android.graphics.Rect
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.core.app.NotificationCompat
 import com.example.autotexttapper.automation.AutomationState
 import com.example.autotexttapper.automation.LogTag
 import com.example.autotexttapper.automation.Target
@@ -32,7 +37,7 @@ private object AutomationConfig {
     const val TIKTOK_PACKAGE = "com.zhiliaoapp.musically"
 
     const val INITIAL_DELAY_MS = 5000L
-    const val WAIT_AFTER_LIKE_MS = 2000L
+    const val WAIT_AFTER_LIKE_MS = 5000L
     const val WAIT_AFTER_SKIP_MS = 4000L
     const val MAIN_SCAN_INTERVAL_MS = 1000L
     const val LOADING_SETTLE_DELAY_MS = 1000L
@@ -44,12 +49,6 @@ private object AutomationConfig {
     /** Gap between the two GLOBAL_ACTION_RECENTS presses that "double tap" the recents
      *  button to jump straight to the previously used app (same as pressing Overview twice). */
     const val RECENTS_DOUBLE_TAP_GAP_MS = 150L
-
-    /** Gap between repeated centre double-taps while waiting for the red-heart confirmation. */
-    const val LIKE_CONFIRM_RETRY_GAP_MS = 1000L
-
-    /** Safety cap so a missing/misdetected heart can never stall automation forever. */
-    const val MAX_LIKE_CONFIRM_ATTEMPTS = 3
 }
 
 /** Cycle-dial segment indices, matching AutomationState.segment. */
@@ -96,7 +95,6 @@ class TextAutomationAccessibilityService : AccessibilityService() {
     private var mainScanScheduled = false
     private var loadingCheckScheduled = false
     private var loadingWaitStartElapsed = 0L
-    private var likeConfirmAttempts = 0
 
     private var mainScanSession = 0
     private val mainScanRunnable = Runnable {
@@ -113,6 +111,19 @@ class TextAutomationAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        createNotificationChannel()
+    }
+
+    /**
+     * Accessibility services are normally only bound by the system, but a Service can also be
+     * explicitly started — the Stop notification action does exactly that (with ACTION_STOP) so
+     * the user can stop automation without opening the app.
+     */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            stopAutomationInternal()
+        }
+        return START_NOT_STICKY
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -174,6 +185,7 @@ class TextAutomationAccessibilityService : AccessibilityService() {
         AutomationState.startSession()
         AutomationState.setPhase("initial wait")
         AutomationState.log(LogTag.ACTION, "session started · initial wait 5s")
+        showRunningNotification()
 
         handler.postDelayed({
             if (!isCurrentSession(session)) return@postDelayed
@@ -189,6 +201,59 @@ class TextAutomationAccessibilityService : AccessibilityService() {
         state = RouteState.IDLE
         AutomationState.log(LogTag.ACTION, "stopped by user")
         AutomationState.stopSession()
+        cancelRunningNotification()
+    }
+
+    // ------------------------------------------------------------------
+    // Notification (Stop action, no need to open the app)
+    // ------------------------------------------------------------------
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        if (manager.getNotificationChannel(NOTIFICATION_CHANNEL_ID) != null) return
+        manager.createNotificationChannel(
+            NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                "Automation status",
+                NotificationManager.IMPORTANCE_LOW
+            )
+        )
+    }
+
+    private fun showRunningNotification() {
+        val stopIntent = Intent(this, TextAutomationAccessibilityService::class.java).apply {
+            action = ACTION_STOP
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            this,
+            0,
+            stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText("Automation running")
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .addAction(0, "Stop", stopPendingIntent)
+            .build()
+
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        try {
+            manager.notify(NOTIFICATION_ID, notification)
+        } catch (e: SecurityException) {
+            // POST_NOTIFICATIONS not granted (Android 13+) — automation still works, it's just
+            // not stoppable from the notification shade until the user grants it.
+        }
+    }
+
+    private fun cancelRunningNotification() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        manager.cancel(NOTIFICATION_ID)
     }
 
     private fun isCurrentSession(session: Int): Boolean = session == sessionId
@@ -271,30 +336,27 @@ class TextAutomationAccessibilityService : AccessibilityService() {
     private fun onLikeVideoClicked(session: Int) {
         state = RouteState.WAIT_AFTER_LIKE
         AutomationState.setPhase("handing off to tiktok")
-        AutomationState.log(LogTag.OK, "like video clicked · waiting 2s")
+        AutomationState.log(LogTag.OK, "like video clicked")
+        // Counted the moment the click happens (same as Skip), not gated on any later
+        // confirmation — this is what "collected" tracks: like taps performed, not hearts seen.
+        AutomationState.collected()
         handler.postDelayed({
             if (!isCurrentSession(session)) return@postDelayed
             state = RouteState.DOUBLE_TAP_CENTER
-            likeConfirmAttempts = 0
             AutomationState.setSegment(DialSegment.COLLECT)
-            doubleTapAndConfirmLike(session)
+            doubleTapOnce(session)
         }, AutomationConfig.WAIT_AFTER_LIKE_MS)
     }
 
     /**
-     * Double-taps the screen centre, then checks for the red-heart confirmation
-     * (AutomationConfig.LIKE_CONFIRMATION_TEXT). If the heart hasn't appeared yet, it waits
-     * LIKE_CONFIRM_RETRY_GAP_MS and double-taps again, up to MAX_LIKE_CONFIRM_ATTEMPTS times so
-     * a missing/misdetected heart can never stall automation forever.
+     * Double-taps the screen centre exactly once, then moves on regardless of what happens next
+     * — no retrying. The red-heart text is checked once afterwards purely for the log line; it
+     * never blocks or repeats the gesture.
      */
-    private fun doubleTapAndConfirmLike(session: Int) {
+    private fun doubleTapOnce(session: Int) {
         if (!isCurrentSession(session)) return
-        likeConfirmAttempts++
         AutomationState.setPhase("sending like gesture")
-        AutomationState.log(
-            LogTag.ACTION,
-            "double-tap dispatched (attempt $likeConfirmAttempts/${AutomationConfig.MAX_LIKE_CONFIRM_ATTEMPTS})"
-        )
+        AutomationState.log(LogTag.ACTION, "double-tap dispatched")
         doubleTapCentre { success ->
             if (!isCurrentSession(session)) return@doubleTapCentre
             if (!success) {
@@ -303,23 +365,11 @@ class TextAutomationAccessibilityService : AccessibilityService() {
                 return@doubleTapCentre
             }
             if (findNodeByText(rootInActiveWindow, AutomationConfig.LIKE_CONFIRMATION_TEXT) != null) {
-                AutomationState.setPhase("collected")
                 AutomationState.log(LogTag.OK, "heart confirmed")
-                AutomationState.collected()
-                switchToPreviousApp(session)
-            } else if (likeConfirmAttempts >= AutomationConfig.MAX_LIKE_CONFIRM_ATTEMPTS) {
-                AutomationState.log(LogTag.WARN, "heart never confirmed · proceeding anyway")
-                switchToPreviousApp(session)
             } else {
-                AutomationState.log(
-                    LogTag.WARN,
-                    "heart not found · retry $likeConfirmAttempts/${AutomationConfig.MAX_LIKE_CONFIRM_ATTEMPTS}"
-                )
-                handler.postDelayed({
-                    if (!isCurrentSession(session)) return@postDelayed
-                    doubleTapAndConfirmLike(session)
-                }, AutomationConfig.LIKE_CONFIRM_RETRY_GAP_MS)
+                AutomationState.log(LogTag.WARN, "heart not confirmed · proceeding anyway")
             }
+            switchToPreviousApp(session)
         }
     }
 
@@ -556,6 +606,10 @@ class TextAutomationAccessibilityService : AccessibilityService() {
     }
 
     companion object {
+        private const val NOTIFICATION_CHANNEL_ID = "automation_status"
+        private const val NOTIFICATION_ID = 1001
+        private const val ACTION_STOP = "com.example.autotexttapper.action.STOP"
+
         @Volatile
         private var instance: TextAutomationAccessibilityService? = null
 
