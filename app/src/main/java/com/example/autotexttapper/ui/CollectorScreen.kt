@@ -41,7 +41,6 @@ import com.example.autotexttapper.ui.atmosphere.CrtOverlay
 import com.example.autotexttapper.ui.atmosphere.RainField
 import com.example.autotexttapper.ui.components.AccessBanner
 import com.example.autotexttapper.ui.components.CycleDial
-import com.example.autotexttapper.ui.components.HeaderStrip
 import com.example.autotexttapper.ui.components.LogConsole
 import com.example.autotexttapper.ui.components.PhaseLine
 import com.example.autotexttapper.ui.components.PowerButton
@@ -130,10 +129,8 @@ fun CollectorScreen() {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            HeaderStrip(state = displayedState, reduceMotion = reduceMotion, modifier = Modifier.fillMaxWidth())
-
             if (!accessibilityEnabled) {
-                Box(modifier = Modifier.padding(top = 10.dp).fillMaxWidth()) {
+                Box(modifier = Modifier.fillMaxWidth()) {
                     AccessBanner(
                         visible = true,
                         onGrantClick = {
@@ -225,9 +222,6 @@ fun CollectorScreen() {
 
         if (!bootFinished) {
             BootOverlay(
-                accessibilityEnabled = accessibilityEnabled,
-                fantikInstalled = fantikInstalled,
-                tiktokInstalled = tiktokInstalled,
                 reduceMotion = reduceMotion,
                 onFinished = { bootFinished = true }
             )

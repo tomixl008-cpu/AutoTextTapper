@@ -43,6 +43,9 @@ private object AutomationConfig {
     const val LOADING_SETTLE_DELAY_MS = 1000L
     const val LOADING_TIMEOUT_MS = 30000L
 
+    /** Safety cap while polling for "Like video" to leave the screen after it's clicked. */
+    const val LIKE_VIDEO_GONE_TIMEOUT_MS = 10000L
+
     const val TAP_DURATION_MS = 60L
     const val DOUBLE_TAP_GAP_MS = 150L
 
@@ -340,6 +343,27 @@ class TextAutomationAccessibilityService : AccessibilityService() {
         // Counted the moment the click happens (same as Skip), not gated on any later
         // confirmation — this is what "collected" tracks: like taps performed, not hearts seen.
         AutomationState.collected()
+        waitForLikeVideoGoneThenDoubleTap(session, SystemClock.elapsedRealtime())
+    }
+
+    /**
+     * Polls until "Like video" is no longer on screen (confirming the tap actually took effect
+     * and the app moved on) before starting the fixed 5-second wait and the double-tap. Bounded
+     * by LIKE_VIDEO_GONE_TIMEOUT_MS so a screen that never updates can't stall automation.
+     */
+    private fun waitForLikeVideoGoneThenDoubleTap(session: Int, waitStartElapsed: Long) {
+        if (!isCurrentSession(session)) return
+        val stillVisible = findNodeByText(rootInActiveWindow, AutomationConfig.LIKE_VIDEO_TEXT) != null
+        val elapsed = SystemClock.elapsedRealtime() - waitStartElapsed
+        if (stillVisible && elapsed < AutomationConfig.LIKE_VIDEO_GONE_TIMEOUT_MS) {
+            handler.postDelayed({
+                waitForLikeVideoGoneThenDoubleTap(session, waitStartElapsed)
+            }, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
+            return
+        }
+        if (stillVisible) {
+            AutomationState.log(LogTag.WARN, "like video never left screen · proceeding anyway")
+        }
         handler.postDelayed({
             if (!isCurrentSession(session)) return@postDelayed
             state = RouteState.DOUBLE_TAP_CENTER

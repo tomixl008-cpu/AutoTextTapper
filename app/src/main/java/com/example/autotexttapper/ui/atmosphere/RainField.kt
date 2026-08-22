@@ -26,7 +26,7 @@ import com.example.autotexttapper.ui.theme.Crimson
 import com.example.autotexttapper.ui.theme.Phosphor
 import kotlin.random.Random
 
-private const val ALPHA_CEILING = 0.10f
+private const val ALPHA_CEILING = 0.22f
 private val GLYPHS = ("ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾊﾐﾋｰｳｼﾅﾓﾆｻﾜ" + "0123456789ABCDEF").toCharArray()
 
 private fun colorFor(state: ServiceState): Color = when (state) {
