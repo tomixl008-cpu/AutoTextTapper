@@ -42,7 +42,7 @@ private object AutomationConfig {
     const val LIKE_CONFIRM_RETRY_GAP_MS = 1000L
 
     /** Safety cap so a missing/misdetected heart can never stall automation forever. */
-    const val MAX_LIKE_CONFIRM_ATTEMPTS = 10
+    const val MAX_LIKE_CONFIRM_ATTEMPTS = 3
 }
 
 /** Finite states for the automation routine. Exactly one action runs per transition. */
