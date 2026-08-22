@@ -41,8 +41,7 @@ This route spans two apps: **Fantik** (`com.tikboost.fantik`), where Main Scan r
 1. Click **Like video** (on Fantik). Fantik itself brings TikTok to the foreground.
 2. Wait 2 seconds.
 3. Double-tap the exact centre of the screen — TikTok's native double-tap-to-like gesture (two
-   ~60 ms taps, ~150 ms apart). Before tapping, the service verifies TikTok is actually in the
-   foreground; if it isn't yet, it aborts back to Main Scan instead of blind-tapping the wrong app.
+   ~60 ms taps, ~150 ms apart).
 4. Check for the red-heart like confirmation (❤️). If it hasn't appeared, wait 1 second and
    double-tap again, up to 3 attempts, so a missing/misdetected heart can never stall automation.
 5. Double-tap the system Recents/Overview action (`GLOBAL_ACTION_RECENTS` pressed twice, ~150 ms
@@ -55,11 +54,6 @@ This route spans two apps: **Fantik** (`com.tikboost.fantik`), where Main Scan r
 
 **Priority rule:** if "Like video" and "Skip" are both visible, only "Like video" is clicked. Skip
 is only ever considered when "Like video" is completely absent from the screen.
-
-**App scoping:** Main Scan only ever reads/clicks when Fantik is the foreground app, and the
-double-tap/like-confirmation step only ever acts when TikTok is the foreground app. If the user
-switches to any third app (WhatsApp, Chrome, etc.) mid-routine, the service takes no action at all
-and simply waits for Fantik or TikTok to come back to the foreground.
 
 ### Skip route
 
