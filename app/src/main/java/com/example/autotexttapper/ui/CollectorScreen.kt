@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -110,10 +112,14 @@ fun CollectorScreen() {
         // Layer 0 — atmosphere
         RainField(state = displayedState, reduceMotion = reduceMotion, modifier = Modifier.fillMaxSize())
 
-        // Layer 1 — content
+        // Layer 1 — content. statusBarsPadding/navigationBarsPadding keep the readable
+        // content clear of the time/battery area and the gesture bar, while the atmosphere
+        // layers behind it still draw fully edge-to-edge.
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
                 .padding(horizontal = Spacing.screenPadding)
                 .padding(top = 12.dp, bottom = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
