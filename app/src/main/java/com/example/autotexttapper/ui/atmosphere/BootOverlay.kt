@@ -34,8 +34,6 @@ import com.example.autotexttapper.ui.theme.Void
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
-private data class BootLine(val prefix: String, val resultText: String, val resultColor: Color)
-
 private const val LABEL_WIDTH = 38
 
 private fun padLabel(label: String): String {
@@ -59,7 +57,7 @@ fun BootOverlay(
     val bColor = if (tiktokInstalled) Phosphor else Amber
 
     val lines = remember {
-        listOf(
+        listOf<Pair<String, Pair<String, Color>?>>(
             "> coin_collector · boot" to null,
             padLabel("> loading motion layer") to ("ok" to Phosphor),
             padLabel("> checking accessibility bridge") to (bridgeText to bridgeColor),
