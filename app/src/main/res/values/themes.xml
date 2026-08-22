@@ -1,26 +1,10 @@
 <resources>
-    <style name="Theme.AutoTextTapper" parent="Theme.Material3.Dark.NoActionBar">
-        <item name="colorPrimary">@color/hacker_neon_green</item>
-        <item name="colorOnPrimary">@color/hacker_bg</item>
-
-        <item name="colorSecondary">@color/hacker_neon_cyan</item>
-        <item name="colorOnSecondary">@color/hacker_bg</item>
-
-        <item name="android:colorBackground">@color/hacker_bg</item>
-        <item name="colorSurface">@color/hacker_surface</item>
-        <item name="colorOnSurface">@color/hacker_text_primary</item>
-        <item name="colorOnSurfaceVariant">@color/hacker_text_dim</item>
-        <item name="colorOutline">@color/hacker_neon_green_dim</item>
-
-        <item name="colorError">@color/hacker_neon_red</item>
-        <item name="colorOnErrorContainer">@color/hacker_neon_red</item>
-        <item name="colorErrorContainer">@color/hacker_bg</item>
-
-        <item name="android:statusBarColor">@color/hacker_bg</item>
-        <item name="android:navigationBarColor">@color/hacker_bg</item>
+    <!-- Minimal window theme; the actual UI is drawn entirely by Compose (see ui/theme/Theme.kt). -->
+    <style name="Theme.AutoTextTapper" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:statusBarColor">@color/window_background</item>
+        <item name="android:navigationBarColor">@color/window_background</item>
         <item name="android:windowLightStatusBar">false</item>
-
-        <item name="android:fontFamily">monospace</item>
-        <item name="fontFamily">monospace</item>
+        <item name="android:windowNoTitle">true</item>
     </style>
 </resources>

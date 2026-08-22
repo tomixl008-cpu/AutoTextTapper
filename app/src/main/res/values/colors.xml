@@ -1,24 +1,6 @@
 <resources>
-    <color name="hacker_bg">#05080A</color>
-    <color name="hacker_surface">#0D1418</color>
-    <color name="hacker_surface_alt">#111C22</color>
-
-    <color name="hacker_neon_green">#39FF14</color>
-    <color name="hacker_neon_green_dim">#1F7A2E</color>
-    <color name="hacker_neon_cyan">#00E5FF</color>
-    <color name="hacker_neon_red">#FF2D55</color>
-
-    <color name="hacker_text_primary">#C6FFDA</color>
-    <color name="hacker_text_dim">#5C7A66</color>
-    <color name="hacker_border_dim">#1C2B22</color>
-
-    <color name="glow_green_halo">#2939FF14</color>
-    <color name="glow_cyan_halo">#2900E5FF</color>
-    <color name="glow_red_halo">#29FF2D55</color>
-
-    <color name="status_dot_disabled">#FF2D55</color>
-    <color name="status_dot_ready">#FFD23A</color>
-    <color name="status_dot_running">#39FF14</color>
-
-    <color name="ic_launcher_background">#05080A</color>
+    <!-- Used by the adaptive launcher icon and the pre-Compose window theme only.
+         All in-app UI colors live in ui/theme/Tokens.kt. -->
+    <color name="ic_launcher_background">#040604</color>
+    <color name="window_background">#040604</color>
 </resources>

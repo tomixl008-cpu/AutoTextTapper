@@ -10,6 +10,9 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.example.autotexttapper.automation.AutomationState
+import com.example.autotexttapper.automation.LogTag
+import com.example.autotexttapper.automation.Target
 
 /**
  * All user-configurable text, delay, and gesture values for the automation
@@ -23,6 +26,10 @@ private object AutomationConfig {
 
     /** Text/content-description that confirms the like actually registered on screen. */
     const val LIKE_CONFIRMATION_TEXT = "❤️"
+
+    /** Informational only — used for the live foreground indicator, never to gate actions. */
+    const val FANTIK_PACKAGE = "com.tikboost.fantik"
+    const val TIKTOK_PACKAGE = "com.zhiliaoapp.musically"
 
     const val INITIAL_DELAY_MS = 5000L
     const val WAIT_AFTER_LIKE_MS = 2000L
@@ -45,8 +52,16 @@ private object AutomationConfig {
     const val MAX_LIKE_CONFIRM_ATTEMPTS = 3
 }
 
+/** Cycle-dial segment indices, matching AutomationState.segment. */
+private object DialSegment {
+    const val SCAN = 0
+    const val DISPATCH = 1
+    const val COLLECT = 2
+    const val RETURN = 3
+}
+
 /** Finite states for the automation routine. Exactly one action runs per transition. */
-enum class AutomationState {
+enum class RouteState {
     IDLE,
     INITIAL_WAIT,
     FIND_LIKE_OR_SKIP,
@@ -73,7 +88,7 @@ class TextAutomationAccessibilityService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
 
-    private var state: AutomationState = AutomationState.IDLE
+    private var state: RouteState = RouteState.IDLE
 
     /** Incremented on every Start/Stop so stale delayed callbacks can detect they're obsolete. */
     private var sessionId: Int = 0
@@ -102,15 +117,26 @@ class TextAutomationAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val type = event?.eventType ?: return
+
+        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            AutomationState.setForeground(
+                when (event.packageName?.toString()) {
+                    AutomationConfig.FANTIK_PACKAGE -> Target.FANTIK
+                    AutomationConfig.TIKTOK_PACKAGE -> Target.TIKTOK
+                    else -> Target.NONE
+                }
+            )
+        }
+
         if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             type != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
         ) {
             return
         }
         when (state) {
-            AutomationState.FIND_LIKE_OR_SKIP -> scheduleMainScan(sessionId, 0L, immediate = true)
-            AutomationState.WAIT_FOR_LOADING,
-            AutomationState.WAIT_FOR_LOADING_TO_FINISH ->
+            RouteState.FIND_LIKE_OR_SKIP -> scheduleMainScan(sessionId, 0L, immediate = true)
+            RouteState.WAIT_FOR_LOADING,
+            RouteState.WAIT_FOR_LOADING_TO_FINISH ->
                 scheduleLoadingCheck(sessionId, 0L, immediate = true)
             else -> Unit
         }
@@ -144,14 +170,14 @@ class TextAutomationAccessibilityService : AccessibilityService() {
         sessionId++
         val session = sessionId
 
-        state = AutomationState.INITIAL_WAIT
-        AutomationStatusHolder.update(getString(R.string.status_started_initial_wait))
+        state = RouteState.INITIAL_WAIT
+        AutomationState.startSession()
+        AutomationState.setPhase("initial wait")
+        AutomationState.log(LogTag.ACTION, "session started · initial wait 5s")
 
         handler.postDelayed({
             if (!isCurrentSession(session)) return@postDelayed
-            state = AutomationState.FIND_LIKE_OR_SKIP
-            AutomationStatusHolder.update(getString(R.string.status_searching))
-            scheduleMainScan(session, 0L, immediate = true)
+            enterScanState(session, logMessage = "scan started")
         }, AutomationConfig.INITIAL_DELAY_MS)
     }
 
@@ -160,18 +186,29 @@ class TextAutomationAccessibilityService : AccessibilityService() {
         handler.removeCallbacksAndMessages(null)
         mainScanScheduled = false
         loadingCheckScheduled = false
-        state = AutomationState.IDLE
-        AutomationStatusHolder.update(getString(R.string.status_stopped))
+        state = RouteState.IDLE
+        AutomationState.log(LogTag.ACTION, "stopped by user")
+        AutomationState.stopSession()
     }
 
     private fun isCurrentSession(session: Int): Boolean = session == sessionId
+
+    /** Enters FIND_LIKE_OR_SKIP, resets the cycle dial to a fresh cycle, and kicks off a scan. */
+    private fun enterScanState(session: Int, logMessage: String?) {
+        state = RouteState.FIND_LIKE_OR_SKIP
+        AutomationState.resetCycle()
+        AutomationState.setSegment(DialSegment.SCAN)
+        AutomationState.setPhase("scanning fantik")
+        if (logMessage != null) AutomationState.log(LogTag.TICK, logMessage)
+        scheduleMainScan(session, 0L, immediate = true)
+    }
 
     // ------------------------------------------------------------------
     // B. Main scan rule — Like video always has priority over Skip
     // ------------------------------------------------------------------
 
     private fun scheduleMainScan(session: Int, delayMs: Long, immediate: Boolean = false) {
-        if (!isCurrentSession(session) || state != AutomationState.FIND_LIKE_OR_SKIP) return
+        if (!isCurrentSession(session) || state != RouteState.FIND_LIKE_OR_SKIP) return
         mainScanSession = session
         if (immediate) {
             handler.removeCallbacks(mainScanRunnable)
@@ -185,16 +222,20 @@ class TextAutomationAccessibilityService : AccessibilityService() {
     }
 
     private fun performMainScan(session: Int) {
-        if (!isCurrentSession(session) || state != AutomationState.FIND_LIKE_OR_SKIP) return
+        if (!isCurrentSession(session) || state != RouteState.FIND_LIKE_OR_SKIP) return
 
         val root = rootInActiveWindow
         val likeNode = findNodeByText(root, AutomationConfig.LIKE_VIDEO_TEXT)
         if (likeNode != null) {
+            AutomationState.setSegment(DialSegment.DISPATCH)
+            AutomationState.log(LogTag.ACTION, "matched \"like video\" · dispatching tap")
             attemptClick(likeNode) { clicked ->
                 if (!isCurrentSession(session)) return@attemptClick
                 if (clicked) {
                     onLikeVideoClicked(session)
                 } else {
+                    AutomationState.log(LogTag.FAIL, "like tap failed · retrying")
+                    AutomationState.setSegment(DialSegment.SCAN)
                     scheduleMainScan(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
                 }
             }
@@ -203,11 +244,15 @@ class TextAutomationAccessibilityService : AccessibilityService() {
 
         val skipNode = findNodeByText(root, AutomationConfig.SKIP_TEXT)
         if (skipNode != null) {
+            AutomationState.setSegment(DialSegment.DISPATCH)
+            AutomationState.log(LogTag.ACTION, "matched \"skip\" · dispatching tap")
             attemptClick(skipNode) { clicked ->
                 if (!isCurrentSession(session)) return@attemptClick
                 if (clicked) {
                     onSkipClicked(session)
                 } else {
+                    AutomationState.log(LogTag.FAIL, "skip tap failed · retrying")
+                    AutomationState.setSegment(DialSegment.SCAN)
                     scheduleMainScan(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
                 }
             }
@@ -215,6 +260,7 @@ class TextAutomationAccessibilityService : AccessibilityService() {
         }
 
         // Neither text visible: don't touch the screen, wait, scan again.
+        AutomationState.log(LogTag.TICK, "scan tick · no match")
         scheduleMainScan(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
     }
 
@@ -223,12 +269,14 @@ class TextAutomationAccessibilityService : AccessibilityService() {
     // ------------------------------------------------------------------
 
     private fun onLikeVideoClicked(session: Int) {
-        state = AutomationState.WAIT_AFTER_LIKE
-        AutomationStatusHolder.update(getString(R.string.status_like_clicked))
+        state = RouteState.WAIT_AFTER_LIKE
+        AutomationState.setPhase("handing off to tiktok")
+        AutomationState.log(LogTag.OK, "like video clicked · waiting 2s")
         handler.postDelayed({
             if (!isCurrentSession(session)) return@postDelayed
-            state = AutomationState.DOUBLE_TAP_CENTER
+            state = RouteState.DOUBLE_TAP_CENTER
             likeConfirmAttempts = 0
+            AutomationState.setSegment(DialSegment.COLLECT)
             doubleTapAndConfirmLike(session)
         }, AutomationConfig.WAIT_AFTER_LIKE_MS)
     }
@@ -242,20 +290,31 @@ class TextAutomationAccessibilityService : AccessibilityService() {
     private fun doubleTapAndConfirmLike(session: Int) {
         if (!isCurrentSession(session)) return
         likeConfirmAttempts++
-        AutomationStatusHolder.update(getString(R.string.status_double_tap))
+        AutomationState.setPhase("sending like gesture")
+        AutomationState.log(
+            LogTag.ACTION,
+            "double-tap dispatched (attempt $likeConfirmAttempts/${AutomationConfig.MAX_LIKE_CONFIRM_ATTEMPTS})"
+        )
         doubleTapCentre { success ->
             if (!isCurrentSession(session)) return@doubleTapCentre
             if (!success) {
+                AutomationState.log(LogTag.FAIL, "gesture cancelled · aborting to scan")
                 abortRouteToMainScan(session)
                 return@doubleTapCentre
             }
             if (findNodeByText(rootInActiveWindow, AutomationConfig.LIKE_CONFIRMATION_TEXT) != null) {
-                AutomationStatusHolder.update(getString(R.string.status_like_confirmed))
+                AutomationState.setPhase("collected")
+                AutomationState.log(LogTag.OK, "heart confirmed")
+                AutomationState.collected()
                 switchToPreviousApp(session)
             } else if (likeConfirmAttempts >= AutomationConfig.MAX_LIKE_CONFIRM_ATTEMPTS) {
+                AutomationState.log(LogTag.WARN, "heart never confirmed · proceeding anyway")
                 switchToPreviousApp(session)
             } else {
-                AutomationStatusHolder.update(getString(R.string.status_like_confirm_retry))
+                AutomationState.log(
+                    LogTag.WARN,
+                    "heart not found · retry $likeConfirmAttempts/${AutomationConfig.MAX_LIKE_CONFIRM_ATTEMPTS}"
+                )
                 handler.postDelayed({
                     if (!isCurrentSession(session)) return@postDelayed
                     doubleTapAndConfirmLike(session)
@@ -271,29 +330,31 @@ class TextAutomationAccessibilityService : AccessibilityService() {
      * Overview button). No on-screen swipe coordinates are needed for this.
      */
     private fun switchToPreviousApp(session: Int) {
-        state = AutomationState.OPEN_RECENTS
-        AutomationStatusHolder.update(getString(R.string.status_open_recents))
+        state = RouteState.OPEN_RECENTS
+        AutomationState.setSegment(DialSegment.RETURN)
+        AutomationState.setPhase("returning to fantik")
+        AutomationState.log(LogTag.ACTION, "opening recents")
         if (!performGlobalAction(GLOBAL_ACTION_RECENTS)) {
+            AutomationState.log(LogTag.FAIL, "recents action failed · aborting to scan")
             abortRouteToMainScan(session)
             return
         }
         handler.postDelayed({
             if (!isCurrentSession(session)) return@postDelayed
-            state = AutomationState.SWITCH_TO_PREVIOUS_APP
-            AutomationStatusHolder.update(getString(R.string.status_switch_previous_app))
+            state = RouteState.SWITCH_TO_PREVIOUS_APP
             if (!performGlobalAction(GLOBAL_ACTION_RECENTS)) {
+                AutomationState.log(LogTag.FAIL, "recents action failed · aborting to scan")
                 abortRouteToMainScan(session)
                 return@postDelayed
             }
+            AutomationState.log(LogTag.ACTION, "switched to previous app")
             beginLoadingWait(session)
         }, AutomationConfig.RECENTS_DOUBLE_TAP_GAP_MS)
     }
 
     private fun abortRouteToMainScan(session: Int) {
         if (!isCurrentSession(session)) return
-        AutomationStatusHolder.update(getString(R.string.status_gesture_interrupted))
-        state = AutomationState.FIND_LIKE_OR_SKIP
-        scheduleMainScan(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
+        enterScanState(session, logMessage = null)
     }
 
     // ------------------------------------------------------------------
@@ -301,16 +362,16 @@ class TextAutomationAccessibilityService : AccessibilityService() {
     // ------------------------------------------------------------------
 
     private fun beginLoadingWait(session: Int) {
-        state = AutomationState.WAIT_FOR_LOADING
+        state = RouteState.WAIT_FOR_LOADING
         loadingWaitStartElapsed = SystemClock.elapsedRealtime()
-        AutomationStatusHolder.update(getString(R.string.status_waiting_for_loading))
+        AutomationState.setPhase("waiting for load")
         scheduleLoadingCheck(session, 0L, immediate = true)
     }
 
     private fun scheduleLoadingCheck(session: Int, delayMs: Long, immediate: Boolean = false) {
         if (!isCurrentSession(session)) return
-        if (state != AutomationState.WAIT_FOR_LOADING &&
-            state != AutomationState.WAIT_FOR_LOADING_TO_FINISH
+        if (state != RouteState.WAIT_FOR_LOADING &&
+            state != RouteState.WAIT_FOR_LOADING_TO_FINISH
         ) {
             return
         }
@@ -338,16 +399,17 @@ class TextAutomationAccessibilityService : AccessibilityService() {
             findNodeByText(root, AutomationConfig.SKIP_TEXT) != null
 
         when (state) {
-            AutomationState.WAIT_FOR_LOADING -> {
+            RouteState.WAIT_FOR_LOADING -> {
                 if (targetScreenReady) {
                     finishLoadingWait(session)
                 } else if (loadingVisible) {
-                    state = AutomationState.WAIT_FOR_LOADING_TO_FINISH
-                    AutomationStatusHolder.update(getString(R.string.status_loading_detected))
+                    state = RouteState.WAIT_FOR_LOADING_TO_FINISH
+                    AutomationState.log(LogTag.WARN, "loading detected · waiting")
                     scheduleLoadingCheck(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
                 } else {
                     val elapsed = SystemClock.elapsedRealtime() - loadingWaitStartElapsed
                     if (elapsed >= AutomationConfig.LOADING_TIMEOUT_MS) {
+                        AutomationState.log(LogTag.WARN, "loading timeout · resuming scan")
                         returnToMainScanAfterLoading(session)
                     } else {
                         scheduleLoadingCheck(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
@@ -355,7 +417,7 @@ class TextAutomationAccessibilityService : AccessibilityService() {
                 }
             }
 
-            AutomationState.WAIT_FOR_LOADING_TO_FINISH -> {
+            RouteState.WAIT_FOR_LOADING_TO_FINISH -> {
                 if (loadingVisible && !targetScreenReady) {
                     scheduleLoadingCheck(session, AutomationConfig.MAIN_SCAN_INTERVAL_MS)
                 } else {
@@ -368,8 +430,8 @@ class TextAutomationAccessibilityService : AccessibilityService() {
     }
 
     private fun finishLoadingWait(session: Int) {
-        state = AutomationState.WAIT_AFTER_LOADING_FINISH
-        AutomationStatusHolder.update(getString(R.string.status_loading_finished))
+        state = RouteState.WAIT_AFTER_LOADING_FINISH
+        AutomationState.log(LogTag.OK, "loading cleared")
         handler.postDelayed({
             if (!isCurrentSession(session)) return@postDelayed
             returnToMainScanAfterLoading(session)
@@ -378,9 +440,7 @@ class TextAutomationAccessibilityService : AccessibilityService() {
 
     private fun returnToMainScanAfterLoading(session: Int) {
         if (!isCurrentSession(session)) return
-        state = AutomationState.FIND_LIKE_OR_SKIP
-        AutomationStatusHolder.update(getString(R.string.status_searching))
-        scheduleMainScan(session, 0L, immediate = true)
+        enterScanState(session, logMessage = null)
     }
 
     // ------------------------------------------------------------------
@@ -388,13 +448,14 @@ class TextAutomationAccessibilityService : AccessibilityService() {
     // ------------------------------------------------------------------
 
     private fun onSkipClicked(session: Int) {
-        state = AutomationState.WAIT_AFTER_SKIP
-        AutomationStatusHolder.update(getString(R.string.status_skip_clicked))
+        state = RouteState.WAIT_AFTER_SKIP
+        AutomationState.setSegment(DialSegment.RETURN) // skip never enters COLLECT
+        AutomationState.setPhase("skip · cooling down")
+        AutomationState.log(LogTag.OK, "skip clicked · waiting 4s")
+        AutomationState.incrementSkips()
         handler.postDelayed({
             if (!isCurrentSession(session)) return@postDelayed
-            state = AutomationState.FIND_LIKE_OR_SKIP
-            AutomationStatusHolder.update(getString(R.string.status_searching))
-            scheduleMainScan(session, 0L, immediate = true)
+            enterScanState(session, logMessage = null)
         }, AutomationConfig.WAIT_AFTER_SKIP_MS)
     }
 
