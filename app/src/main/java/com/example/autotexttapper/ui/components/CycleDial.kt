@@ -28,18 +28,20 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.example.autotexttapper.automation.ServiceState
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import com.example.autotexttapper.ui.theme.Amber
 import com.example.autotexttapper.ui.theme.Crimson
 import com.example.autotexttapper.ui.theme.Ice
 import com.example.autotexttapper.ui.theme.Phosphor
 import com.example.autotexttapper.ui.theme.SurfaceRaised
 import com.example.autotexttapper.ui.theme.Void
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.round
@@ -65,9 +67,72 @@ private inline fun DrawScope.emboss(base: Color, alpha: Float, crossinline draw:
     draw(base, alpha)
 }
 
+/** Geometry that never changes across frames (only depends on fixed dp sizes) — computed once. */
+private class StaticGeometry(
+    val R: Float,
+    val cx: Float,
+    val cy: Float,
+    val hexPath: Path,
+    val rimTickDirs: List<Offset>,
+    val bezelTicks: List<BezelTick>
+)
+
+private class BezelTick(val dir: Offset, val len: Float, val alpha: Float, val width: Float)
+
+private class GrooveSegment(val startAngleDeg: Float, val sweepDeg: Float, val color: Color)
+
+private fun buildStaticGeometry(density: Density): StaticGeometry = with(density) {
+    val r = 44.dp.toPx()
+    val cx = 85.dp.toPx()
+    val cy = 85.dp.toPx()
+    val hexRadius = r * 0.29f
+    val hexPath = Path().apply {
+        for (i in 0..6) {
+            val angle = Math.PI / 3.0 * i - Math.PI / 2.0
+            val x = cx + (hexRadius * cos(angle)).toFloat()
+            val y = cy + (hexRadius * sin(angle)).toFloat()
+            if (i == 0) moveTo(x, y) else lineTo(x, y)
+        }
+        close()
+    }
+    val rimTicks = (0 until 28).map { i ->
+        val angle = 2 * Math.PI * i / 28
+        Offset(cos(angle).toFloat(), sin(angle).toFloat())
+    }
+    val bezelTicks = (0 until 72).map { i ->
+        val angle = 2 * Math.PI * i / 72 - Math.PI / 2
+        val isQuarter = i % 18 == 0
+        BezelTick(
+            dir = Offset(cos(angle).toFloat(), sin(angle).toFloat()),
+            len = if (isQuarter) 9.dp.toPx() else 4.dp.toPx(),
+            alpha = if (isQuarter) 0.22f else 0.09f,
+            width = if (isQuarter) 1.6.dp.toPx() else 1.dp.toPx()
+        )
+    }
+    StaticGeometry(r, cx, cy, hexPath, rimTicks, bezelTicks)
+}
+
+private fun buildGrooveSegments(): List<GrooveSegment> = (0 until 48).map { i ->
+    val a0 = 2 * Math.PI * i / 48
+    val a1 = 2 * Math.PI * (i + 0.6) / 48
+    val mid = (a0 + a1) / 2f
+    val lightDot = cos(mid - LIGHT_ANGLE)
+    val segColor = if (lightDot > 0) SurfaceRaised.lit((0.16f * lightDot).toFloat()) else SurfaceRaised.shaded(0.90f)
+    GrooveSegment(
+        startAngleDeg = Math.toDegrees(a0).toFloat() - 90f,
+        sweepDeg = Math.toDegrees(a1 - a0).toFloat(),
+        color = segColor
+    )
+}
+
 /**
  * The signature element: a 3D coin with a 4-segment cycle dial around it. One Canvas.
  * segment: 0=SCAN 1=DISPATCH 2=COLLECT 3=RETURN. cycleDone: highest segment reached (-1 = none).
+ *
+ * Performance: all geometry that doesn't change frame-to-frame (bezel ticks, rim ticks, the hex
+ * path, groove-ring angles/colors) is precomputed once via remember, not recalculated inside the
+ * per-frame draw pass — that recalculation (trig + Color lerps for ~150 elements every frame) was
+ * the main source of jank, not the animation drivers themselves.
  */
 @Composable
 fun CycleDial(
@@ -80,6 +145,10 @@ fun CycleDial(
 ) {
     val color = colorFor(state)
     val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+
+    val geometry = remember(density) { buildStaticGeometry(density) }
+    val grooveSegments = remember(color) { buildGrooveSegments() }
 
     // ---- Spin physics: velocity-lerp, not angle-lerp, so the coin has weight ----
     val latestState = rememberUpdatedState(state)
@@ -157,9 +226,9 @@ fun CycleDial(
 
     Box(modifier = modifier.size(170.dp), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.size(170.dp)) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
-            val R = 44.dp.toPx()
+            val cx = geometry.cx
+            val cy = geometry.cy
+            val R = geometry.R
             val theta = angleState.floatValue
             val cosT = cos(theta)
             val sinT = sin(theta)
@@ -180,20 +249,13 @@ fun CycleDial(
                 )
             }
 
-            // Machined groove ring at 81dp — lit toward LIGHT_ANGLE, shaded away from it
+            // Machined groove ring at 81dp — precomputed angles/colors, just draw
             val grooveR = 81.dp.toPx()
-            val grooveSegments = 48
-            for (i in 0 until grooveSegments) {
-                val a0 = (2 * Math.PI * i / grooveSegments)
-                val a1 = (2 * Math.PI * (i + 0.6) / grooveSegments)
-                val mid = (a0 + a1) / 2f
-                val lightDot = cos(mid - LIGHT_ANGLE)
-                val segColor = if (lightDot > 0) SurfaceRaised.lit((0.16f * lightDot).toFloat())
-                else SurfaceRaised.shaded(0.90f)
+            for (seg in grooveSegments) {
                 drawArc(
-                    color = segColor,
-                    startAngle = Math.toDegrees(a0).toFloat() - 90f,
-                    sweepAngle = Math.toDegrees(a1 - a0).toFloat(),
+                    color = seg.color,
+                    startAngle = seg.startAngleDeg,
+                    sweepAngle = seg.sweepDeg,
                     useCenter = false,
                     topLeft = Offset(cx - grooveR, cy - grooveR),
                     size = Size(grooveR * 2f, grooveR * 2f),
@@ -201,21 +263,14 @@ fun CycleDial(
                 )
             }
 
-            // Precision bezel at 75dp — 72 ticks, every 18th longer/brighter
+            // Precision bezel at 75dp — precomputed tick directions, just draw
             val bezelR = 75.dp.toPx()
-            for (i in 0 until 72) {
-                val angle = 2 * Math.PI * i / 72 - Math.PI / 2
-                val isQuarter = i % 18 == 0
-                val len = if (isQuarter) 9.dp.toPx() else 4.dp.toPx()
-                val alpha = if (isQuarter) 0.22f else 0.09f
-                val width = if (isQuarter) 1.6.dp.toPx() else 1.dp.toPx()
-                val ox = cos(angle).toFloat()
-                val oy = sin(angle).toFloat()
+            for (tick in geometry.bezelTicks) {
                 drawLine(
-                    color = Color.White.copy(alpha = alpha),
-                    start = Offset(cx + ox * bezelR, cy + oy * bezelR),
-                    end = Offset(cx + ox * (bezelR + len), cy + oy * (bezelR + len)),
-                    strokeWidth = width
+                    color = Color.White.copy(alpha = tick.alpha),
+                    start = Offset(cx + tick.dir.x * bezelR, cy + tick.dir.y * bezelR),
+                    end = Offset(cx + tick.dir.x * (bezelR + tick.len), cy + tick.dir.y * (bezelR + tick.len)),
+                    strokeWidth = tick.width
                 )
             }
 
@@ -278,33 +333,19 @@ fun CycleDial(
                     emboss(displayColor, faceAlpha * 0.5f) { c, a ->
                         drawCircle(color = c.copy(alpha = a), radius = R * 0.74f, center = Offset(cx, cy), style = Stroke(1.dp.toPx()))
                     }
-                    // rim ticks — flat, not embossed
-                    for (i in 0 until 28) {
-                        val angle = 2 * Math.PI * i / 28
-                        val ox = cos(angle).toFloat()
-                        val oy = sin(angle).toFloat()
-                        val outerR = R
-                        val innerR = R - 4.dp.toPx()
+                    // rim ticks — flat, not embossed, precomputed directions
+                    val innerR = R - 4.dp.toPx()
+                    for (dir in geometry.rimTickDirs) {
                         drawLine(
                             color = displayColor.copy(alpha = faceAlpha * 0.35f),
-                            start = Offset(cx + ox * innerR, cy + oy * innerR),
-                            end = Offset(cx + ox * outerR, cy + oy * outerR),
+                            start = Offset(cx + dir.x * innerR, cy + dir.y * innerR),
+                            end = Offset(cx + dir.x * R, cy + dir.y * R),
                             strokeWidth = 1.dp.toPx()
                         )
                     }
-                    // hex glyph — embossed
-                    val hexRadius = R * 0.29f
-                    val hexPath = Path().apply {
-                        for (i in 0..6) {
-                            val angle = Math.PI / 3.0 * i - Math.PI / 2.0
-                            val x = cx + (hexRadius * cos(angle)).toFloat()
-                            val y = cy + (hexRadius * sin(angle)).toFloat()
-                            if (i == 0) moveTo(x, y) else lineTo(x, y)
-                        }
-                        close()
-                    }
+                    // hex glyph — embossed, precomputed path
                     emboss(displayColor, faceAlpha) { c, a ->
-                        drawPath(path = hexPath, color = c.copy(alpha = a), style = Stroke(2.dp.toPx()))
+                        drawPath(path = geometry.hexPath, color = c.copy(alpha = a), style = Stroke(2.dp.toPx()))
                     }
                     // specular sweep (replaced by a hard glint during a collect)
                     val sweepFrac = if (collectProgress.value < 1f) (collectProgress.value / 0.6f).coerceAtMost(1f) else sweepAnim.value
