@@ -21,8 +21,11 @@ private object AutomationConfig {
     const val SKIP_TEXT = "Skip"
     const val LOADING_TEXT = "Loading"
 
+    /** Text/content-description that confirms the like actually registered on screen. */
+    const val LIKE_CONFIRMATION_TEXT = "❤️"
+
     const val INITIAL_DELAY_MS = 5000L
-    const val WAIT_AFTER_LIKE_MS = 5000L
+    const val WAIT_AFTER_LIKE_MS = 2000L
     const val WAIT_AFTER_SKIP_MS = 4000L
     const val MAIN_SCAN_INTERVAL_MS = 1000L
     const val LOADING_SETTLE_DELAY_MS = 1000L
@@ -34,6 +37,12 @@ private object AutomationConfig {
     /** Gap between the two GLOBAL_ACTION_RECENTS presses that "double tap" the recents
      *  button to jump straight to the previously used app (same as pressing Overview twice). */
     const val RECENTS_DOUBLE_TAP_GAP_MS = 150L
+
+    /** Gap between repeated centre double-taps while waiting for the red-heart confirmation. */
+    const val LIKE_CONFIRM_RETRY_GAP_MS = 1000L
+
+    /** Safety cap so a missing/misdetected heart can never stall automation forever. */
+    const val MAX_LIKE_CONFIRM_ATTEMPTS = 10
 }
 
 /** Finite states for the automation routine. Exactly one action runs per transition. */
@@ -72,6 +81,7 @@ class TextAutomationAccessibilityService : AccessibilityService() {
     private var mainScanScheduled = false
     private var loadingCheckScheduled = false
     private var loadingWaitStartElapsed = 0L
+    private var likeConfirmAttempts = 0
 
     private var mainScanSession = 0
     private val mainScanRunnable = Runnable {
@@ -218,16 +228,40 @@ class TextAutomationAccessibilityService : AccessibilityService() {
         handler.postDelayed({
             if (!isCurrentSession(session)) return@postDelayed
             state = AutomationState.DOUBLE_TAP_CENTER
-            AutomationStatusHolder.update(getString(R.string.status_double_tap))
-            doubleTapCentre { success ->
-                if (!isCurrentSession(session)) return@doubleTapCentre
-                if (success) {
-                    switchToPreviousApp(session)
-                } else {
-                    abortRouteToMainScan(session)
-                }
-            }
+            likeConfirmAttempts = 0
+            doubleTapAndConfirmLike(session)
         }, AutomationConfig.WAIT_AFTER_LIKE_MS)
+    }
+
+    /**
+     * Double-taps the screen centre, then checks for the red-heart confirmation
+     * (AutomationConfig.LIKE_CONFIRMATION_TEXT). If the heart hasn't appeared yet, it waits
+     * LIKE_CONFIRM_RETRY_GAP_MS and double-taps again, up to MAX_LIKE_CONFIRM_ATTEMPTS times so
+     * a missing/misdetected heart can never stall automation forever.
+     */
+    private fun doubleTapAndConfirmLike(session: Int) {
+        if (!isCurrentSession(session)) return
+        likeConfirmAttempts++
+        AutomationStatusHolder.update(getString(R.string.status_double_tap))
+        doubleTapCentre { success ->
+            if (!isCurrentSession(session)) return@doubleTapCentre
+            if (!success) {
+                abortRouteToMainScan(session)
+                return@doubleTapCentre
+            }
+            if (findNodeByText(rootInActiveWindow, AutomationConfig.LIKE_CONFIRMATION_TEXT) != null) {
+                AutomationStatusHolder.update(getString(R.string.status_like_confirmed))
+                switchToPreviousApp(session)
+            } else if (likeConfirmAttempts >= AutomationConfig.MAX_LIKE_CONFIRM_ATTEMPTS) {
+                switchToPreviousApp(session)
+            } else {
+                AutomationStatusHolder.update(getString(R.string.status_like_confirm_retry))
+                handler.postDelayed({
+                    if (!isCurrentSession(session)) return@postDelayed
+                    doubleTapAndConfirmLike(session)
+                }, AutomationConfig.LIKE_CONFIRM_RETRY_GAP_MS)
+            }
+        }
     }
 
     /**

@@ -33,7 +33,7 @@ Start -> wait 5s -> Main Scan (Like video priority over Skip)
 ### Like video route
 
 1. Click **Like video**.
-2. Wait 5 seconds.
+2. Wait 2 seconds.
 3. Double-tap the exact centre of the screen (two ~60 ms taps, ~150 ms apart).
 4. Double-tap the system Recents/Overview action (`GLOBAL_ACTION_RECENTS` pressed twice, ~150 ms
    apart) — the first press opens the recent-apps screen, the second press switches straight to
@@ -133,7 +133,7 @@ private object AutomationConfig {
     const val LOADING_TEXT = "Loading"
 
     const val INITIAL_DELAY_MS = 5000L
-    const val WAIT_AFTER_LIKE_MS = 5000L
+    const val WAIT_AFTER_LIKE_MS = 2000L
     const val WAIT_AFTER_SKIP_MS = 4000L
     const val MAIN_SCAN_INTERVAL_MS = 1000L
     const val LOADING_SETTLE_DELAY_MS = 500L
